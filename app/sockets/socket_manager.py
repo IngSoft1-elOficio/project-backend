@@ -6,10 +6,10 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class WebSocketManager:
-    # Constructor
+
     def __init__(self, sio: socketio.AsyncServer):
         self.sio = sio
-        # tracking interno: sid -> {user_id, game_id, connected_at}
+        # tracking interno: sid -> {user_id, game_id, connected_at} se pierde si se cae el server
         self.user_sessions: Dict[str, dict] = {}
 
     def get_room_name(self, game_id: int) -> str:
@@ -39,7 +39,9 @@ class WebSocketManager:
             }, room=room, skip_sid=sid)
 
             logger.info(f"Usuario {user_id} se unió a room {room}")
+            
             return True
+
         except Exception as e:
             logger.error(f"Error joining room: {e}")
             await self.sio.emit('error', {'message': 'Error unindose a la partida'}, room=sid)
