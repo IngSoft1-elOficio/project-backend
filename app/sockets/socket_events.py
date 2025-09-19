@@ -15,9 +15,9 @@ def register_events(sio: socketio.AsyncServer):
     async def connect(sid, environ):
         """Maneja nuevas conexiones"""
         try:
-            # implementar: validar conexion
-
             # guardar en session de socketIO
+            user_id = 123
+
             await sio.save_session(sid, {'user_id': user_id})
 
             logger.info(f"Usuario {user_id} conectado con sid {sid}")
