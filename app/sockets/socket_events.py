@@ -15,7 +15,8 @@ def register_events(sio: socketio.AsyncServer):
     async def connect(sid, environ):
         """Maneja nuevas conexiones"""
         try:
-            user_id = 123
+            headers = environ.get('HTTP_USER_ID')
+            user_id = int(headers)
 
             await sio.save_session(sid,{ 'user_id': user_id })
 
@@ -47,3 +48,36 @@ def register_events(sio: socketio.AsyncServer):
 
         except Exception as e:
             logger.error(f"Error en disconnect: {e}")        
+
+    @sio.event
+    async def join_game(sid, data):
+        """Evento de unirse a partida, solo para testing luego de implementar endpoint POST eliminar"""
+        try:
+            game_id = data['game_id']
+            user_id = data['user_id']
+
+            result = await ws_manager.join_game_room(sid, game_id,user_id)
+             
+        except Exception as e:
+            logger.error(f"Error in join_game event: {e}")
+            await sio.emit('join_error', {'message': 'Error joining game'}, room=sid)
+
+
+    @sio.event
+    async def get_participants(sid, data):
+        """Evento para traer participantes del room (testing)"""
+        try:
+            game_id = data['game_id']
+
+            result = await ws_manager.get_room_participants(game_id)
+            print(f"================  ===== result participants: {result}")
+        
+        except Exception as e:
+            logger.error(f"Error in join_game event: {e}")
+            await sio.emit('join_error', {'message': 'Error joining game'}, room=sid)
+            
+        # notificar conexion al cliente 
+        await sio.emit('get_participants', {
+            'participants_list': result
+        }, room=sid)
+

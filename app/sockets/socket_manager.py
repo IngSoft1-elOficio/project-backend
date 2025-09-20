@@ -31,12 +31,12 @@ class WebSocketManager:
                     'connected_at': datetime.now().isoformat()
             }
 
-            # notificar a otros jugadores en el room
+           # notificar a otros jugadores en el room
             await self.sio.emit('player_connected', {
                 'user_id': user_id,
                 'game_id': game_id,
                 'timestamp': datetime.now().isoformat()
-            }, room=room, skip_sid=sid)
+            })
 
             logger.info(f"Usuario {user_id} se unió a room {room}")
             
@@ -44,7 +44,7 @@ class WebSocketManager:
 
         except Exception as e:
             logger.error(f"Error joining room: {e}")
-            await self.sio.emit('error', {'message': 'Error unindose a la partida'}, room=sid)
+            await self.sio.emit('error', {'message': 'Error uniendose a la partida'}, room=sid)
             return False
 
     async def leave_game_room(self, sid: str):
