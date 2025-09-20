@@ -70,7 +70,7 @@ def register_events(sio: socketio.AsyncServer):
             game_id = data['game_id']
 
             result = await ws_manager.get_room_participants(game_id)
-            print(f"================  ===== result participants: {result}")
+            print(f"result participants: {result}")
         
         except Exception as e:
             logger.error(f"Error in join_game event: {e}")

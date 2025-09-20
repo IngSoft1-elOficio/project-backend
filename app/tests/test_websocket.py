@@ -76,14 +76,6 @@ async def test_get_participants():
         print(f"Error receiving events: {e}")
     
     await sio_client1.emit('get_participants', {'game_id': 100})
-    
-    # consumir evento de get participants
-    try:
-        event_participants = await sio_client1.receive(timeout=10)
-        print(f"got participants: {event_participants}")
-    
-    except Exception as e:
-        print(f"Error receiving events: {e}")
 
     await sio_client1.disconnect()
     await sio_client2.disconnect()
