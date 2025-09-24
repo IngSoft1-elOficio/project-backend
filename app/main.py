@@ -23,9 +23,18 @@ app.add_middleware(
 )
 
 # Configurar SocketIO para WebSocket
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=settings.ALLOWED_ORIGINS)
-socket_app = socketio.ASGIApp(sio)
-app.mount("/socket.io", socket_app)
+sio = socketio.AsyncServer(
+        async_mode="asgi",
+        cors_allowed_origins=settings.ALLOWED_ORIGINS,
+        logger=True, # para debugear
+        engineio_logger=True
+)
+
+socket_app = socketio.ASGIApp(sio, app)
+
+# importar eventos despues de crear sio
+from .sockets.socket_events import register_events
+register_events(sio)
 
 # Ruta de prueba
 @app.get("/health")
@@ -35,6 +44,18 @@ async def health_check():
 # Incluir rutas de la API
 from app.routes import api
 app.include_router(api.router)
+<<<<<<< HEAD
+from app.routes import game
+app.include_router(game.router)
+
+
+# Incluir eventos de WebSocket
+from app.sockets import socket_events
+sio.on("connect", socket_events.handle_connect)
+sio.on("disconnect", socket_events.handle_disconnect)
+=======
+>>>>>>> develop
+
 from app.routes import game
 app.include_router(game.router)
 
