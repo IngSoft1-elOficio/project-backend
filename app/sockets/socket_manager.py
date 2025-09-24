@@ -91,6 +91,32 @@ class WebSocketManager:
 
         return participants
 
+    # Metodos para las notificaciones
+
+    async def emit_to_room(self, game_id: int, event: str, data: Dict):
+        """Emite un evento a todos los jugadores en una partida"""
+        room = self.get_room_name(game_id) # Tomo a que partida le mando la notificacion
+        # Chequeo que la room no este vacia
+        if not any(s['game_id'] == game_id for s in self.user_sessions.values()):
+          logger.warning(f"La room esta vacía: {room}")
+          return
+        
+        await self.sio.emit(event, data, room=room)
+    
+    async def emit_to_sid(self, sid: str, event: str, data: Dict):
+        """Emite un evento privado a un jugador"""
+        await self.sio.emit(event, data, to=sid)
+    
+    def get_sids_in_game(self, game_id: int) -> List[str]:
+        """Devuelve los SIDs de los jugadores conectados en la room"""
+        return [
+            sid for sid, s in self.user_sessions.items()
+            if s['game_id'] == game_id
+        ]
+    
+    def get_user_session(self, sid: str) -> Optional[dict]:
+        """Devuelve la sesión del usuario si esta conectado"""
+        return self.user_sessions.get(sid)
 
 # Instancia global
 _ws_manager: Optional[WebSocketManager] = None
