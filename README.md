@@ -51,6 +51,14 @@ SECRET_KEY="developer_pass"
 ```bash
 python create_db.py
 ```
+## Ejecutar tests unitarios
+```bash
+pytest
+```
+o, en caso de error:
+```bash
+python -m pytest
+```
 
 # Run the development server
 

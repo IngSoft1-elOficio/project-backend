@@ -116,8 +116,28 @@ def list_cards_by_game(db: Session, game_id: int):
     ).all()
 
 # ------------------------------
-# CARD (info de cartas)
+# CARD 
 # ------------------------------
 def get_card_by_id(db: Session, card_id: int):
     return db.query(models.Card).filter(models.Card.id == card_id).first()
 
+# ------------------------------
+# HELPERS para DECK/DISCARD
+# ------------------------------
+def get_top_card_by_state(db: Session, game_id: int, state: str):
+    """
+    Devuelve la carta con mayor position en el estado dado (DECK o DISCARD) para un game_id.
+    """
+    return db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.is_in == state
+    ).order_by(models.CardsXGame.position.desc()).first()
+
+def count_cards_by_state(db: Session, game_id: int, state: str):
+    """
+    Devuelve la cantidad de cartas en el estado dado (DECK o DISCARD) para un game_id.
+    """
+    return db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.is_in == state
+    ).count()
