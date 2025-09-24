@@ -44,7 +44,6 @@ async def health_check():
 # Incluir rutas de la API
 from app.routes import api
 app.include_router(api.router)
-<<<<<<< HEAD
 from app.routes import game
 app.include_router(game.router)
 
@@ -53,8 +52,6 @@ app.include_router(game.router)
 from app.sockets import socket_events
 sio.on("connect", socket_events.handle_connect)
 sio.on("disconnect", socket_events.handle_disconnect)
-=======
->>>>>>> develop
 
 from app.routes import game
 app.include_router(game.router)
