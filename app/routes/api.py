@@ -1,10 +1,11 @@
 # app/routes/api.py
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, Query, Depends, HTTPException, Path
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List
 from ..db.database import SessionLocal
-from ..db.models import Room, Player, RoomStatus
+from ..db.models import Room, Player, RoomStatus, Game, CardsXGame, CardState
+from app.sockets.socket_service import get_websocket_service
 
 router = APIRouter(prefix="/api", tags=["API"])
 
@@ -80,3 +81,40 @@ def get_game_list(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=10
     except Exception as e:
         print(f"Error in game_list: {e}")  # Para debug
         raise HTTPException(status_code=500, detail="server_error")
+    
+
+# Endpoint: POST /game/{id}/skip
+@router.post("/game/{game_id}/skip")
+async def skip_turn(
+    game_id: int = Path(..., descrition="ID de la partida"),
+    user_id: int = 1, # token/auth, pero por ahora es 1
+    db: Session = Depends(get_db)
+):
+    # Busca la patrida
+    game = db.query(Game).filter(Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="game_not_found")
+
+    # Validar turno
+    if game.player_turn_id != user_id:
+        raise HTTPException(status_code=403, detail="not_your_turn")
+    
+    # Buscar cartas en la mano del jugador
+    hand_cards = (
+        db.query(CardsXGame).filter(
+            CardsXGame.id_game == game_id,
+            CardsXGame.player_id == user_id,
+            CardsXGame.is_in == CardState.HAND
+        ).order_by(CardsXGame.position.asc()).all()
+    )
+
+    if not hand_cards:
+      raise HTTPException(status_code=400, detail="empty_hand")
+
+    # Descartar primera carta
+    discarded = hand_cards[0]
+    discarded.is_in = CardState.DISCARD
+    discarded.player_id = None
+    db.add(discarded)
+
+    # Robar del mazo la carta con menor posicion en el deck
