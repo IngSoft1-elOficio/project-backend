@@ -1,184 +1,196 @@
 import pytest
-from unittest.mock import AsyncMock, patch
-from app.services import game_service
+import os
+from unittest.mock import Mock, patch, AsyncMock
+
+# Configurar variables de entorno antes de importar módulos de la app
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+
+from app.services.game_service import (
+    get_asesino,
+    get_complice,
+    finalizar_partida,
+    procesar_ultima_carta,
+    get_websocket_service_instance
+)
 
 
-@pytest.mark.asyncio
-async def test_procesar_ultima_carta_fin_de_partida():
-    """Test básico que verifica el fin de partida cuando se agota el mazo"""
+class TestGameService:
     
-    # Mock del WebSocketService
-    mock_ws_service = AsyncMock()
-    
-    with patch("app.services.game_service.get_websocket_service", return_value=mock_ws_service):
-        # Reasignar websocket_service
-        game_service.websocket_service = mock_ws_service
-        
-        # Datos de prueba - partida con 1 carta restante
-        game_id = 123
-        carta = "The murderer escapes"
+    def test_get_asesino_encontrado(self):
+        """Test que get_asesino retorna el ID correcto cuando existe un murderer"""
         game_state = {
-            "game": {
-                "id": game_id,
-                "status": "in_game"
-            },
             "players": [
-                {"id": 1, "name": "Ana", "role": "murderer"},
-                {"id": 2, "name": "Luis", "role": "accomplice"},
-                {"id": 3, "name": "Carlos", "role": "detective"}
-            ],
-            "deck": {"remaining": 1}
+                {"id": 1, "role": "innocent"},
+                {"id": 2, "role": "murderer"},
+                {"id": 3, "role": "detective"}
+            ]
+        }
+        result = get_asesino(game_state)
+        assert result == 2
+
+    def test_get_asesino_no_encontrado(self):
+        """Test que get_asesino retorna None cuando no hay murderer"""
+        game_state = {
+            "players": [
+                {"id": 1, "role": "innocent"},
+                {"id": 3, "role": "detective"}
+            ]
+        }
+        result = get_asesino(game_state)
+        assert result is None
+
+    def test_get_complice_encontrado(self):
+        """Test que get_complice retorna el ID correcto cuando existe un accomplice"""
+        game_state = {
+            "players": [
+                {"id": 1, "role": "innocent"},
+                {"id": 2, "role": "accomplice"},
+                {"id": 3, "role": "detective"}
+            ]
+        }
+        result = get_complice(game_state)
+        assert result == 2
+
+    @patch('app.services.game_service.SessionLocal')
+    @patch('app.services.game_service.logger')
+    @pytest.mark.asyncio
+    async def test_finalizar_partida_exitoso(self, mock_logger, mock_session):
+        """Test que finalizar_partida llama correctamente a la DB (sin usar DB real)"""
+        # Setup mocks
+        mock_db = Mock()
+        mock_session.return_value = mock_db
+        mock_room = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_room
+        
+        # Execute
+        winners = [{"role": "murderer", "player_id": 1}]
+        await finalizar_partida(123, winners)
+        
+        # Verify interactions
+        mock_db.query.assert_called_once()
+        mock_db.add.assert_called_once_with(mock_room)
+        mock_db.commit.assert_called_once()
+        mock_db.close.assert_called_once()
+        mock_logger.info.assert_called_once()
+
+    @patch('app.services.game_service.SessionLocal')
+    @pytest.mark.asyncio
+    async def test_finalizar_partida_room_no_encontrada(self, mock_session):
+        """Test que finalizar_partida lanza excepción cuando no encuentra la room"""
+        # Setup mocks - room no encontrada
+        mock_db = Mock()
+        mock_session.return_value = mock_db
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        
+        # Execute & verify exception
+        with pytest.raises(ValueError, match="No se encontró room para game_id=123"):
+            await finalizar_partida(123, [])
+        
+        # Verify db was closed even with exception
+        mock_db.close.assert_called_once()
+
+    @patch('app.services.game_service.get_websocket_service_instance')
+    @patch('app.services.game_service.logger')
+    @pytest.mark.asyncio
+    async def test_procesar_ultima_carta_mazo_no_vacio(self, mock_logger, mock_ws_service):
+        """Test que procesar_ultima_carta disminuye el mazo cuando no está vacío"""
+        # Setup
+        mock_ws = Mock()
+        mock_ws_service.return_value = mock_ws
+        
+        game_state = {
+            "deck": {"remaining": 5},
+            "game": {"status": "playing"}
         }
         
-        # Ejecutar función
-        await game_service.procesar_ultima_carta(game_id, carta, game_state)
+        # Execute
+        await procesar_ultima_carta(123, "some_card", game_state)
         
-        # Verificar que el mazo quedó en 0
-        assert game_state["deck"]["remaining"] == 0
-        
-        # Verificar que el estado cambió a finished
-        assert game_state["game"]["status"] == "finished"
-        
-        # Verificar que se llamó al WebSocket 2 veces (game_finished y game_state)
-        assert mock_ws_service.emit_to_room.call_count == 2
-        
-        # Verificar primera llamada (game_finished)
-        first_call = mock_ws_service.emit_to_room.call_args_list[0]
-        assert first_call[0][0] == game_id  # game_id
-        assert first_call[0][1] == "game_finished"  # event
-        
-        # Verificar que hay winners en la primera llamada
-        winners = first_call[0][2]["winners"]
-        assert len(winners) == 2  # murderer y accomplice
-        
-        # Verificar estructura y contenido de los winners
-        winner_roles = [w["role"] for w in winners]
-        winner_ids = [w["player_id"] for w in winners]
-        
-        assert "murderer" in winner_roles
-        assert "accomplice" in winner_roles
-        assert 1 in winner_ids  # ID del murderer
-        assert 2 in winner_ids  # ID del accomplice
-
-
-@pytest.mark.asyncio 
-async def test_procesar_ultima_carta_continua_partida():
-    """Test que verifica que la partida continúa cuando quedan cartas"""
-    
-    mock_ws_service = AsyncMock()
-    
-    with patch("app.services.game_service.get_websocket_service", return_value=mock_ws_service):
-        game_service.websocket_service = mock_ws_service
-        
-        # Partida con más de 1 carta
-        game_id = 456
-        carta = "Some other card"
-        game_state = {
-            "game": {
-                "id": game_id,
-                "status": "in_game"
-            },
-            "players": [
-                {"id": 1, "role": "murderer"},
-                {"id": 2, "role": "accomplice"}
-            ],
-            "deck": {"remaining": 5}
-        }
-        
-        # Ejecutar función
-        await game_service.procesar_ultima_carta(game_id, carta, game_state)
-        
-        # Verificar que el mazo se decrementó en 1
+        # Verify
         assert game_state["deck"]["remaining"] == 4
+        mock_ws.emit_to_room.assert_not_called()
+        mock_logger.debug.assert_called_once()
+
+    @patch('app.services.game_service.finalizar_partida')
+    @patch('app.services.game_service.get_websocket_service_instance')
+    @patch('app.services.game_service.logger')
+    @pytest.mark.asyncio
+    async def test_procesar_ultima_carta_fin_mazo_murderer_escapes(self, mock_logger, mock_ws_service, mock_finalizar):
+        """Test procesar_ultima_carta con fin de mazo y murderer escape"""
+        # Setup mocks
+        mock_ws = Mock()
+        mock_ws.emit_to_room = AsyncMock()
+        mock_ws_service.return_value = mock_ws
+        mock_finalizar.return_value = None
         
-        # Verificar que el estado NO cambió
-        assert game_state["game"]["status"] == "in_game"
-        
-        # Verificar que NO se llamó al WebSocket
-        mock_ws_service.emit_to_room.assert_not_called()
-
-
-def test_get_asesino():
-    """Test para la función get_asesino"""
-    
-    # Caso con asesino presente
-    game_state = {
-        "players": [
-            {"id": 1, "role": "detective"},
-            {"id": 2, "role": "murderer"},
-            {"id": 3, "role": "accomplice"}
-        ]
-    }
-    
-    asesino_id = game_service.get_asesino(game_state)
-    assert asesino_id == 2
-    
-    # Caso sin asesino
-    game_state_sin_asesino = {
-        "players": [
-            {"id": 1, "role": "detective"},
-            {"id": 3, "role": "accomplice"}
-        ]
-    }
-    
-    asesino_id = game_service.get_asesino(game_state_sin_asesino)
-    assert asesino_id is None
-
-
-def test_get_complice():
-    """Test para la función get_complice"""
-    
-    # Caso con cómplice presente
-    game_state = {
-        "players": [
-            {"id": 1, "role": "detective"},
-            {"id": 2, "role": "murderer"},
-            {"id": 3, "role": "accomplice"}
-        ]
-    }
-    
-    complice_id = game_service.get_complice(game_state)
-    assert complice_id == 3
-    
-    # Caso sin cómplice
-    game_state_sin_complice = {
-        "players": [
-            {"id": 1, "role": "detective"},
-            {"id": 2, "role": "murderer"}
-        ]
-    }
-    
-    complice_id = game_service.get_complice(game_state_sin_complice)
-    assert complice_id is None
-
-
-@pytest.mark.asyncio
-async def test_procesar_ultima_carta_sin_murderer_escapes():
-    """Test cuando la última carta NO es 'The murderer escapes'"""
-    
-    mock_ws_service = AsyncMock()
-    
-    with patch("app.services.game_service.get_websocket_service", return_value=mock_ws_service):
-        game_service.websocket_service = mock_ws_service
-        
-        game_id = 789
-        carta = "Some other final card"
         game_state = {
-            "game": {"id": game_id, "status": "in_game"},
+            "deck": {"remaining": 1},
+            "game": {"status": "playing"},
             "players": [
                 {"id": 1, "role": "murderer"},
-                {"id": 2, "role": "accomplice"}
-            ],
-            "deck": {"remaining": 1}
+                {"id": 2, "role": "accomplice"},
+                {"id": 3, "role": "innocent"}
+            ]
         }
         
-        await game_service.procesar_ultima_carta(game_id, carta, game_state)
+        # Execute
+        await procesar_ultima_carta(123, "The murderer escapes", game_state)
         
-        # La partida debe terminar pero sin winners
-        assert game_state["game"]["status"] == "finished"
+        # Verify game state changes
         assert game_state["deck"]["remaining"] == 0
+        assert game_state["game"]["status"] == "finished"
+        assert len(game_state["winners"]) == 2
         
-        # Verificar que se emitió game_finished con winners vacío
-        first_call = mock_ws_service.emit_to_room.call_args_list[0]
-        winners = first_call[0][2]["winners"]
-        assert len(winners) == 0
+        expected_winners = [
+            {"role": "murderer", "player_id": 1},
+            {"role": "accomplice", "player_id": 2}
+        ]
+        assert game_state["winners"] == expected_winners
+        
+        # Verify function calls
+        mock_finalizar.assert_called_once_with(123, expected_winners)
+        assert mock_ws.emit_to_room.call_count == 2
+        mock_logger.info.assert_called()
+
+    @patch('app.services.game_service.finalizar_partida')
+    @patch('app.services.game_service.get_websocket_service_instance')
+    @pytest.mark.asyncio
+    async def test_procesar_ultima_carta_fin_mazo_otra_carta(self, mock_ws_service, mock_finalizar):
+        """Test procesar_ultima_carta con fin de mazo pero otra carta (no murderer escape)"""
+        # Setup mocks
+        mock_ws = Mock()
+        mock_ws.emit_to_room = AsyncMock()
+        mock_ws_service.return_value = mock_ws
+        
+        game_state = {
+            "deck": {"remaining": 1},
+            "game": {"status": "playing"},
+            "players": [{"id": 1, "role": "innocent"}]
+        }
+        
+        # Execute
+        await procesar_ultima_carta(123, "other_card", game_state)
+        
+        # Verify
+        assert game_state["winners"] == []
+        assert game_state["game"]["status"] == "finished"
+        mock_finalizar.assert_called_once_with(123, [])
+
+    @patch('app.services.game_service.get_websocket_service')
+    def test_get_websocket_service_instance_singleton(self, mock_get_ws):
+        """Test que get_websocket_service_instance funciona como singleton"""
+        # Reset global variable
+        import app.services.game_service as game_service_module
+        game_service_module.websocket_service = None
+        
+        mock_service = Mock()
+        mock_get_ws.return_value = mock_service
+        
+        # Call twice
+        result1 = get_websocket_service_instance()
+        result2 = get_websocket_service_instance()
+        
+        # Verify singleton behavior
+        assert result1 is result2
+        assert result1 is mock_service
+        mock_get_ws.assert_called_once()
