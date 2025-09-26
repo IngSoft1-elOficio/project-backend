@@ -49,3 +49,5 @@ async def health_check():
 # Incluir rutas de la API
 from app.routes import api
 app.include_router(api.router)
+from app.routes import game
+app.include_router(game.router)
