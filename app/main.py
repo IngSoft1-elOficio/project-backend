@@ -51,3 +51,5 @@ from app.routes import api
 app.include_router(api.router)
 from app.routes import game
 app.include_router(game.router)
+from app.routes import start
+app.include_router(start.router)
