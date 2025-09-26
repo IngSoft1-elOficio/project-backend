@@ -3,6 +3,9 @@ from app.db.models import Room, RoomStatus
 from app.db.database import SessionLocal
 from typing import Dict, Optional, List
 import logging
+from sqlalchemy.orm import Session
+from datetime import datetime
+from ..db import crud
 
 logger = logging.getLogger(__name__)
 
@@ -80,3 +83,55 @@ async def procesar_ultima_carta(game_id: int, carta: str, game_state: Dict):
         logger.info(f"Partida {game_id} finalizada, winners: {winners}")
     else:
         logger.debug(f"Mazo restante: {mazo} cartas, game_id {game_id}")
+
+
+
+def join_game(db: Session, room_id: int, player_data: dict):
+    try:
+        # Get room by id
+        room = crud.get_room_by_id(db, room_id)
+        if not room:
+            return {"success": False, "error": "room_not_found"}
+        
+        # Check if room is accepting players
+        if room.status != RoomStatus.WAITING:
+            return {"success": False, "error": "room_not_waiting"}
+        
+        # Get current players in the room
+        current_players = crud.list_players_by_room(db, room_id)
+        
+        # Check if room is full
+        if len(current_players) >= room.player_qty:
+            return {"success": False, "error": "room_full"}
+        
+        # Parse birthdate string to date object
+        try:
+            birthdate_obj = datetime.strptime(player_data["birthdate"], "%Y-%m-%d").date()
+        except ValueError:
+            return {"success": False, "error": "invalid_birthdate_format"}
+        
+        # Prepare player data for creation
+        new_player_data = {
+            "name": player_data["name"],
+            "avatar": player_data["avatar"],
+            "birthdate": birthdate_obj,
+            "id_room": room_id,
+            "is_host": False  # El host es el creador
+        }
+        
+        # Create the new player
+        new_player = crud.create_player(db, new_player_data)
+        
+        # Get updated list of players
+        updated_players = crud.list_players_by_room(db, room_id)
+        
+        return {
+            "success": True,
+            "room": room,
+            "players": updated_players,
+            "error": None
+        }
+    
+    except Exception as e:
+        print(f"Error in join_game_logic: {e}")
+        return {"success": False, "error": "internal_error"}
