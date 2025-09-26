@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.schemas.start import StartRequest
 from app.db.models import Player, Room, Game, RoomStatus
+from datetime import date
 
 router = APIRouter(prefix="/game/{game_id}", tags=["Games"])
 
@@ -42,6 +43,28 @@ def start_game(game_id: int, userid: StartRequest, db: Session = Depends(get_db)
     room.id_game = new_game.id
     room.status = RoomStatus.INGAME
     db.add(room)
+    db.commit()
+
+    # Asignar turnos segun fecha de nacimiento
+    ref = date(1890, 9, 15)
+    def day_of_year(d: date) -> int:
+        return d.timetuple().tm_yday
+    
+    ref_day = day_of_year(ref)
+    def day_diff(d: date) -> int:
+        dy = day_of_year(d)
+        diff = abs(dy - ref_day)
+        return min(diff, 365 - diff)
+    
+    players_sorted = sorted(players, key=lambda p: day_diff(p.birthdate))
+    for i, p in enumerate(players_sorted, start=1):
+        p.order = i
+        db.add(p)
+    db.commit()
+
+    first_player = players_sorted[0]
+    new_game.player_turn_id = first_player.id
+    db.add(new_game)
     db.commit()
 
     return {""}
