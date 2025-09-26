@@ -21,7 +21,7 @@ class DeckView(BaseModel):
     remaining: int
 
 class DiscardView(BaseModel):
-    top: Optional[CardSummary]  # puede ser None
+    top: CardSummary | None
     count: int
 
 class DiscardResponse(BaseModel):
