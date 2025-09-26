@@ -1,5 +1,5 @@
 from app.sockets.socket_service import get_websocket_service
-from app.db.models import Room, RoomStatus
+from app.db.models import Room, RoomStatus, CardState, CardsXGame, Player
 from app.db.database import SessionLocal
 from typing import Dict, Optional, List
 import logging
@@ -80,3 +80,69 @@ async def procesar_ultima_carta(game_id: int, carta: str, game_state: Dict):
         logger.info(f"Partida {game_id} finalizada, winners: {winners}")
     else:
         logger.debug(f"Mazo restante: {mazo} cartas, game_id {game_id}")
+
+
+#funciones para descarte
+
+async def descartar_cartas(db, game, user_id, card_ids):
+        discarded = (
+        db.query(CardsXGame)
+        .filter(CardsXGame.id_game == game.id,
+                CardsXGame.player_id == user_id,
+                CardsXGame.id_card.in_(card_ids),
+                CardsXGame.is_in == CardState.HAND)
+        .all()
+    )
+        next_pos = db.query(CardsXGame).filter(
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.DISCARD
+    ).count()
+        for i, card in enumerate(discarded, start=1):
+            card.is_in = CardState.DISCARD
+            card.position = next_pos + i
+
+        db.commit()
+        return discarded
+
+
+async def robar_cartas_del_mazo(db, game, user_id, cantidad):
+    from app.db.models import CardsXGame, CardState
+    
+    drawn = (
+        db.query(CardsXGame)
+        .filter(CardsXGame.id_game == game.id,
+                CardsXGame.is_in == CardState.DECK)
+        .order_by(CardsXGame.position)  
+        .limit(cantidad)
+        .all()
+    )
+    for card in drawn:
+        card.is_in = CardState.HAND
+        card.player_id = user_id
+    db.commit()
+    return drawn
+
+
+async def actualizar_turno(db, game):
+    players = db.query(Player).filter(Player.id_room == game.rooms[0].id).order_by(Player.order).all()
+    ids = [p.id for p in players]
+
+    if game.player_turn_id in ids:
+        idx = ids.index(game.player_turn_id)
+        next_idx = (idx + 1) % len(ids)
+        game.player_turn_id = ids[next_idx]
+        db.commit()
+
+    
+async def emitir_eventos_ws(game_id, user_id, action, hand, deck, discard):
+    ws_service = get_websocket_service_instance()
+    
+    await ws_service.emit_to_sid(user_id, "action_result", {
+        "room_id": game_id,
+        "action": action,
+        "hand": hand
+    })
+
+    await ws_service.emit_to_room(game_id, "deck_updated", deck)
+    await ws_service.emit_to_room(game_id, "discard_updated", discard)
+    await ws_service.emit_to_room(game_id, "turn_updated", {"current_player_id": user_id})
