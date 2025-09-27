@@ -1,5 +1,6 @@
 from app.sockets.socket_service import get_websocket_service
 from app.db.models import Room, RoomStatus, CardState, CardsXGame, Player
+from app.db.models import Room, RoomStatus
 from app.db.database import SessionLocal
 from typing import Dict, Optional, List
 import logging
@@ -146,3 +147,5 @@ async def emitir_eventos_ws(game_id, user_id, action, hand, deck, discard):
     await ws_service.emit_to_room(game_id, "deck_updated", deck)
     await ws_service.emit_to_room(game_id, "discard_updated", discard)
     await ws_service.emit_to_room(game_id, "turn_updated", {"current_player_id": user_id})
+
+    logger.debug(f"Mazo restante: {mazo} cartas, game_id {game_id}")
