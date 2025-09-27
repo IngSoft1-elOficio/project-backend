@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
+from app.routes import discard
 import socketio
 
 # Inicializar FastAPI
@@ -49,6 +50,7 @@ async def health_check():
 # Incluir rutas de la API
 from app.routes import api
 app.include_router(api.router)
+app.include_router(discard.router)
 from app.routes import game
 app.include_router(game.router)
 from app.routes import start
