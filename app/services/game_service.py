@@ -4,6 +4,9 @@ from app.db.models import Room, RoomStatus
 from app.db.database import SessionLocal
 from typing import Dict, Optional, List
 import logging
+from sqlalchemy.orm import Session
+from datetime import datetime
+from ..db import crud
 
 logger = logging.getLogger(__name__)
 
@@ -83,69 +86,52 @@ async def procesar_ultima_carta(game_id: int, carta: str, game_state: Dict):
         logger.debug(f"Mazo restante: {mazo} cartas, game_id {game_id}")
 
 
-#funciones para descarte
-
-async def descartar_cartas(db, game, user_id, card_ids):
-        discarded = (
-        db.query(CardsXGame)
-        .filter(CardsXGame.id_game == game.id,
-                CardsXGame.player_id == user_id,
-                CardsXGame.id_card.in_(card_ids),
-                CardsXGame.is_in == CardState.HAND)
-        .all()
-    )
-        next_pos = db.query(CardsXGame).filter(
-        CardsXGame.id_game == game.id,
-        CardsXGame.is_in == CardState.DISCARD
-    ).count()
-        for i, card in enumerate(discarded, start=1):
-            card.is_in = CardState.DISCARD
-            card.position = next_pos + i
-
-        db.commit()
-        return discarded
-
-
-async def robar_cartas_del_mazo(db, game, user_id, cantidad):
-    from app.db.models import CardsXGame, CardState
+def join_game(db: Session, room_id: int, player_data: dict):
+    try:
+        # Get room by id
+        room = crud.get_room_by_id(db, room_id)
+        if not room:
+            return {"success": False, "error": "room_not_found"}
+        
+        # Check if room is accepting players
+        if room.status != RoomStatus.WAITING:
+            return {"success": False, "error": "room_not_waiting"}
+        
+        # Get current players in the room
+        current_players = crud.list_players_by_room(db, room_id)
+        
+        # Check if room is full
+        if len(current_players) >= room.player_qty:
+            return {"success": False, "error": "room_full"}
+        
+        # Parse birthdate string to date object
+        try:
+            birthdate_obj = datetime.strptime(player_data["birthdate"], "%Y-%m-%d").date()
+        except ValueError:
+            return {"success": False, "error": "invalid_birthdate_format"}
+        
+        # Prepare player data for creation
+        new_player_data = {
+            "name": player_data["name"],
+            "avatar": player_data["avatar"],
+            "birthdate": birthdate_obj,
+            "id_room": room_id,
+            "is_host": False  # El host es el creador
+        }
+        
+        # Create the new player
+        new_player = crud.create_player(db, new_player_data)
+        
+        # Get updated list of players
+        updated_players = crud.list_players_by_room(db, room_id)
+        
+        return {
+            "success": True,
+            "room": room,
+            "players": updated_players,
+            "error": None
+        }
     
-    drawn = (
-        db.query(CardsXGame)
-        .filter(CardsXGame.id_game == game.id,
-                CardsXGame.is_in == CardState.DECK)
-        .order_by(CardsXGame.position)  
-        .limit(cantidad)
-        .all()
-    )
-    for card in drawn:
-        card.is_in = CardState.HAND
-        card.player_id = user_id
-    db.commit()
-    return drawn
-
-
-async def actualizar_turno(db, game):
-    players = db.query(Player).filter(Player.id_room == game.rooms[0].id).order_by(Player.order).all()
-    ids = [p.id for p in players]
-
-    if game.player_turn_id in ids:
-        idx = ids.index(game.player_turn_id)
-        next_idx = (idx + 1) % len(ids)
-        game.player_turn_id = ids[next_idx]
-        db.commit()
-
-    
-async def emitir_eventos_ws(game_id, user_id, action, hand, deck, discard):
-    ws_service = get_websocket_service_instance()
-    
-    await ws_service.emit_to_sid(user_id, "action_result", {
-        "room_id": game_id,
-        "action": action,
-        "hand": hand
-    })
-
-    await ws_service.emit_to_room(game_id, "deck_updated", deck)
-    await ws_service.emit_to_room(game_id, "discard_updated", discard)
-    await ws_service.emit_to_room(game_id, "turn_updated", {"current_player_id": user_id})
-
-    logger.debug(f"Mazo restante: {mazo} cartas, game_id {game_id}")
+    except Exception as e:
+        print(f"Error in join_game_logic: {e}")
+        return {"success": False, "error": "internal_error"}
