@@ -1,4 +1,5 @@
 from app.sockets.socket_service import get_websocket_service
+from app.db.models import Room, RoomStatus, CardState, CardsXGame, Player
 from app.db.models import Room, RoomStatus
 from app.db.database import SessionLocal
 from typing import Dict, Optional, List
@@ -83,7 +84,6 @@ async def procesar_ultima_carta(game_id: int, carta: str, game_state: Dict):
         logger.info(f"Partida {game_id} finalizada, winners: {winners}")
     else:
         logger.debug(f"Mazo restante: {mazo} cartas, game_id {game_id}")
-
 
 
 def join_game(db: Session, room_id: int, player_data: dict):
