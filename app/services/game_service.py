@@ -4,6 +4,7 @@ from app.db.models import Room, RoomStatus
 from app.db.database import SessionLocal
 from typing import Dict, Optional, List
 import logging
+from app.sockets.socket_manager import get_ws_manager
 from sqlalchemy.orm import Session
 from datetime import datetime
 from ..db import crud
@@ -135,3 +136,97 @@ def join_game(db: Session, room_id: int, player_data: dict):
     except Exception as e:
         print(f"Error in join_game_logic: {e}")
         return {"success": False, "error": "internal_error"}
+
+
+#funciones para descarte
+
+async def descartar_cartas(db, game, user_id, card_ids):
+    discarded = []
+
+    next_pos = db.query(CardsXGame).filter(
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.DISCARD
+    ).count()
+
+    for i, card_id in enumerate(card_ids, start=1):
+        # elimina duplicados
+        db.query(CardsXGame).filter(
+            CardsXGame.id_game == game.id,
+            CardsXGame.id_card == card_id,
+            CardsXGame.player_id == user_id,
+            CardsXGame.is_in != CardState.HAND
+        ).delete(synchronize_session=False)
+
+        # descartar la carta
+        card = (
+            db.query(CardsXGame)
+            .filter(
+                CardsXGame.id_game == game.id,
+                CardsXGame.player_id == user_id,
+                CardsXGame.id_card == card_id,
+                CardsXGame.is_in == CardState.HAND
+            )
+            .first()
+        )
+        if card:
+            card.is_in = CardState.DISCARD
+            card.position = next_pos + i
+            discarded.append(card)
+
+    db.commit()
+    return discarded
+
+
+
+async def robar_cartas_del_mazo(db, game, user_id, cantidad):
+    from app.db.models import CardsXGame, CardState
+    
+    drawn = (
+        db.query(CardsXGame)
+        .filter(CardsXGame.id_game == game.id,
+                CardsXGame.is_in == CardState.DECK)
+        .order_by(CardsXGame.position)  
+        .limit(cantidad)
+        .all()
+    )
+    for card in drawn:
+        # resetear dueño
+        card.player_id = user_id
+        card.is_in = CardState.HAND
+
+    db.commit()
+    return drawn
+
+
+async def actualizar_turno(db, game):
+    room = db.query(Room).filter(Room.id_game == game.id).first()
+    players = (
+        db.query(Player)
+        .filter(Player.id_room == room.id)
+        .order_by(Player.order)
+        .all()
+    )
+    ids = [p.id for p in players]
+
+    if game.player_turn_id in ids:
+        idx = ids.index(game.player_turn_id)
+        next_idx = (idx + 1) % len(ids)
+        game.player_turn_id = ids[next_idx]
+        db.commit()
+
+
+    
+async def emitir_eventos_ws(game, user_id, action, hand, deck, discard):
+    ws = get_ws_manager()
+
+    payload_action = {
+        "room_id": game.id,
+        "action": action,
+        "hand": hand
+    }
+    await ws.emit_to_room(game.id, "action_result", payload_action)
+
+    await ws.emit_to_room(game.id, "deck_updated", deck)
+    await ws.emit_to_room(game.id, "discard_updated", discard)
+    await ws.emit_to_room(game.id, "turn_updated", {"current_player_id": user_id})
+
