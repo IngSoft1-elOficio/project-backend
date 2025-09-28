@@ -16,7 +16,8 @@ app = FastAPI(
 # Configurar CORS para desarrollo
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    #allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,7 +26,8 @@ app.add_middleware(
 # Configurar Socket.IO para WebSocket
 sio = socketio.AsyncServer(
     async_mode="asgi",
-    cors_allowed_origins=settings.ALLOWED_ORIGINS,
+    #cors_allowed_origins=settings.ALLOWED_ORIGINS,
+    cors_allowed_origins=["http://localhost:5173"],
     logger=True,          # para debugear
     engineio_logger=True
 )

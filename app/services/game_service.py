@@ -3,6 +3,7 @@ from app.db.models import Room, RoomStatus
 from app.db.database import SessionLocal
 from typing import Dict, Optional, List
 import logging
+from app.services.game_status_service import get_game_status_service
 
 logger = logging.getLogger(__name__)
 
@@ -80,3 +81,23 @@ async def procesar_ultima_carta(game_id: int, carta: str, game_state: Dict):
         logger.info(f"Partida {game_id} finalizada, winners: {winners}")
     else:
         logger.debug(f"Mazo restante: {mazo} cartas, game_id {game_id}")
+
+def adapt_game_state_for_socket(game_state_obj):
+    raw_state = game_state_obj.dict()
+    return {
+        "turno_actual": raw_state["turn"]["current_player_id"],
+        "jugadores": raw_state["players"],
+        "mazos": {
+            "mazo_principal": raw_state["deck"]["remaining"],
+            "mazo_descarte": raw_state["discard"]["count"],
+            "top_descarte": raw_state["discard"]["top"]  # dict o None
+        },
+        "manos": {raw_state["hand"]["player_id"]: [c.dict() for c in raw_state["hand"]["cards"]]} if raw_state.get("hand") else {},
+        "secretos": {raw_state["secrets"]["player_id"]: [c.dict() for c in raw_state["secrets"]["cards"]]} if raw_state.get("secrets") else {},
+    }
+
+async def notify_game_state_to_socket(db, game_id, user_id):
+    game_state_obj = get_game_status_service(db, game_id, user_id)
+    game_state = adapt_game_state_for_socket(game_state_obj)
+    websocket_service = get_websocket_service()
+    await websocket_service.notificar_estado_partida(game_id, game_state=game_state)
