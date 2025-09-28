@@ -1,5 +1,5 @@
 # app/routes/api.py
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, Query, Depends, HTTPException, Path
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List
@@ -80,3 +80,4 @@ def get_game_list(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=10
     except Exception as e:
         print(f"Error in game_list: {e}")  # Para debug
         raise HTTPException(status_code=500, detail="server_error")
+    
