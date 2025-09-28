@@ -11,9 +11,9 @@ from app.services.game_service import (
     emitir_eventos_ws
 )
 
-router = APIRouter(prefix="/game", tags=["Game"])
+router = APIRouter(prefix="/game", tags=["Games"])
 
-# Conexión a la DB
+
 def get_db():
     db = SessionLocal()
     try:
@@ -22,6 +22,14 @@ def get_db():
         db.close()
 
 
+def to_card_summary(card: CardsXGame) -> dict:
+    return {
+        "id": card.id_card,
+        "name": card.card.name if card.card else None,
+        "type": card.card.type if card.card else None,
+        "img": card.card.img_src if card.card else None,
+    }
+
 @router.post("/{room_id}/discard", response_model=DiscardResponse, status_code=200)
 async def discard_cards(
     room_id: int,
@@ -29,7 +37,6 @@ async def discard_cards(
     user_id: int = Header(..., alias="HTTP_USER_ID"),
     db: Session = Depends(get_db)
 ):
-  
     room = db.query(Room).filter(Room.id == room_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="not_found")
@@ -63,17 +70,21 @@ async def discard_cards(
     # descartar
     discarded = await descartar_cartas(db, game, user_id, card_ids)
 
-    # Reponer la misma cantidad que las descartadas
+    # reponer
     drawn = await robar_cartas_del_mazo(db, game, user_id, len(discarded))
 
-    # Actualizar turno
+    # turno
     await actualizar_turno(db, game)
 
+    # armar response usando helper
     response = DiscardResponse(
-        action={"discarded": discarded, "drawn": drawn},
+        action={
+            "discarded": [to_card_summary(c) for c in discarded],
+            "drawn": [to_card_summary(c) for c in drawn]
+        },
         hand={
             "player_id": user_id,
-            "cards": drawn  
+            "cards": [to_card_summary(c) for c in drawn]
         },
         deck={
             "remaining": db.query(CardsXGame)
@@ -81,19 +92,19 @@ async def discard_cards(
             .count()
         },
         discard={
-            "top": discarded[-1] if discarded else None,
+            "top": to_card_summary(discarded[-1]) if discarded else None,
             "count": db.query(CardsXGame)
             .filter(CardsXGame.id_game == game.id, CardsXGame.is_in == CardState.DISCARD)
             .count()
         }
     )
 
-    # 9. Emitir eventos WS
+    # eventos WS
     await emitir_eventos_ws(
-        game.id,
+        game,
         user_id,
-        {"discarded": discarded, "drawn": drawn},
-        response.hand,
+        response.action,
+        response.hand.model_dump(),
         response.deck,
         response.discard
     )
