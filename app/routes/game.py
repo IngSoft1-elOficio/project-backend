@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from app.db import crud
 from app.db.database import SessionLocal
-from app.db.models import Room, Player, RoomStatus
+from app.db import models
 from app.schemas.game import GameCreate, GameResponse
 from app.services.game_status_service import get_game_status_service
 from app.schemas.game_status_schema import GameStateView, ErrorResponse
+from typing import Dict, List, Optional
+from datetime import datetime, date
 
-router = APIRouter(prefix="/api", tags=["Games"])
+router = APIRouter()
 
 def get_db():
     db = SessionLocal()
@@ -15,44 +18,119 @@ def get_db():
     finally:
         db.close()
 
+from pydantic import BaseModel
+from datetime import date
+
+class PlayerCreateRequest(BaseModel):
+    nombre: str
+    avatar: str
+    fechaNacimiento: str
+
+class RoomCreateRequest(BaseModel):
+    nombre_partida: str
+    jugadores: int
+
+class GameCreateRequest(BaseModel):
+    room: RoomCreateRequest
+    player: PlayerCreateRequest
+
+class PlayerResponse(BaseModel):
+    id: int
+    name: str
+    avatar: str
+    birthdate: str
+    is_host: bool
+    model_config = {"from_attributes": True}
+
+class RoomResponse(BaseModel):
+    id: int
+    name: str
+    player_qty: int
+    status: str
+    host_id: int
+    model_config = {"from_attributes": True}
+
+class GameResponse(BaseModel):
+    room: RoomResponse
+    players: List[PlayerResponse]
+    model_config = {"from_attributes": True}
+
 @router.post("/game", response_model=GameResponse, status_code=201)
-def create_game(newgame: GameCreate, db: Session = Depends(get_db)):
-    # Validar nombre unico de la partida
-    existing = db.query(Room).filter(Room.name == newgame.room.nombre_partida).first()
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Ya existe una partida con ese nombre"
+def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
+    print("POST /game received:", newgame)
+    
+    try:
+        # Check if room name already exists
+        existing_room = db.query(models.Room).filter(
+            models.Room.name == newgame.room.nombre_partida
+        ).first()
+        
+        if existing_room:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya existe una partida con ese nombre"
+            )
+        
+        # 1. Create Game first (parent table)
+        game_data = {}
+        new_game = crud.create_game(db, game_data)
+        
+        # 2. Create Room linked to Game
+        room_data = {
+            "name": newgame.room.nombre_partida,
+            "player_qty": newgame.room.jugadores,
+            "status": models.RoomStatus.WAITING,
+            "id_game": new_game.id
+        }
+        new_room = crud.create_room(db, room_data)
+        
+        # 3. Create Host Player linked to Room
+        # Convert string date to date object
+        try:
+            birthdate_obj = datetime.strptime(newgame.player.fechaNacimiento, "%Y-%m-%d").date()
+        except ValueError:
+            # Try different date formats if needed
+            birthdate_obj = datetime.strptime(newgame.player.fechaNacimiento, "%d-%m-%Y").date()
+        
+        player_data = {
+            "name": newgame.player.nombre,
+            "avatar_src": newgame.player.avatar,
+            "birthdate": birthdate_obj,
+            "id_room": new_room.id,
+            "is_host": True,
+            "order": 1  # Host is first player
+        }
+        new_player = crud.create_player(db, player_data)
+        
+        # 6. Return response
+        return GameResponse(
+            room=RoomResponse(
+                id=new_room.id,
+                name=new_room.name,
+                player_qty=new_room.player_qty,
+                status=new_room.status.value,  # Convert enum to string
+                host_id=new_player.id
+            ),
+            players=[
+                PlayerResponse(
+                    id=new_player.id,
+                    name=new_player.name,
+                    avatar=new_player.avatar_src,
+                    birthdate=new_player.birthdate.strftime("%Y-%m-%d"),
+                    is_host=new_player.is_host
+                )
+            ]
         )
-
-    new_room = Room(
-        name=newgame.room.nombre_partida,
-        player_qty=newgame.room.jugadores,
-        status=RoomStatus.WAITING,
-    )
-
-    db.add(new_room)
-    db.commit()
-    db.refresh(new_room)
-
-    new_player = Player(
-        is_host=newgame.player.host_id,
-        # name=newgame.player.nombre,
-        # avatar_src=newgame.player.avatar,
-        # birthdate=newgame.player.fechaNacimiento,
-    )
-
-    db.add(new_player)
-    db.commit()
-    db.refresh(new_player)
-
-    return { 
-        "id_partida": new_room.id,
-        "nombre_partida": new_room.name,
-        "jugadores": new_room.player_qty,
-        "estado": new_room.status,
-        "host_id": new_player.id
-    }
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        print(f"Error creating game: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al crear la partida"
+        )
 
 @router.get(
     "/game/{game_id}/status",

@@ -2,7 +2,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routes import discard
 import socketio
 
 # Inicializar FastAPI
@@ -17,7 +16,7 @@ app = FastAPI(
 # Configurar CORS para desarrollo
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins="*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -26,7 +25,7 @@ app.add_middleware(
 # Configurar Socket.IO para WebSocket
 sio = socketio.AsyncServer(
     async_mode="asgi",
-    cors_allowed_origins=settings.ALLOWED_ORIGINS,
+    cors_allowed_origins="*",
     logger=True,          # para debugear
     engineio_logger=True
 )
@@ -35,23 +34,23 @@ sio = socketio.AsyncServer(
 from app.sockets.socket_manager import init_ws_manager
 init_ws_manager(sio)
 
-# Aplicación ASGI con Socket.IO
-socket_app = socketio.ASGIApp(sio, app)
-
 # Importar y registrar eventos de Socket
 from app.sockets.socket_events import register_events
 register_events(sio)
+
+# Incluir rutas de la API
+from app.routes import api
+app.include_router(api.router)
+from app.routes import game
+app.include_router(game.router)
+from app.routes import start
+app.include_router(start.router)
+
+# Aplicación ASGI con Socket.IO
+socket_app = socketio.ASGIApp(sio, app)
 
 # Ruta de prueba para health check
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "environment": settings.ENVIRONMENT}
 
-# Incluir rutas de la API
-from app.routes import api
-app.include_router(api.router)
-app.include_router(discard.router)
-from app.routes import game
-app.include_router(game.router)
-from app.routes import start
-app.include_router(start.router)

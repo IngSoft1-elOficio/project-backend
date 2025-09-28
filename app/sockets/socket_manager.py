@@ -18,30 +18,29 @@ class WebSocketManager:
 
     async def join_game_room(self, sid: str, game_id: int, user_id: int) -> bool:
         """Une a un jugador al room de su partida"""
-        try: 
+        try:
             room = self.get_room_name(game_id)
-
-            # Implentar: Validar que el usuario puede acceder a esta partida
+            
+            # Implementar: Validar que el usuario puede acceder a esta partida
             await self.sio.enter_room(sid, room)
-
+            
             # actualizar tracking interno
             self.user_sessions[sid] = {
-                    'user_id': user_id,
-                    'game_id': game_id,
-                    'connected_at': datetime.now().isoformat()
+                'user_id': user_id,
+                'game_id': game_id,
+                'connected_at': datetime.now().isoformat()
             }
-
-           # notificar a otros jugadores en el room
+            
+            # notificar a otros jugadores en el room (skip current user)
             await self.sio.emit('player_connected', {
                 'user_id': user_id,
                 'game_id': game_id,
                 'timestamp': datetime.now().isoformat()
-            })
-
-            logger.info(f"Usuario {user_id} se unió a room {room}")
+            }, room=room, skip_sid=sid)
             
+            logger.info(f"Usuario {user_id} se unió a room {room}")
             return True
-
+            
         except Exception as e:
             logger.error(f"Error joining room: {e}")
             await self.sio.emit('error', {'message': 'Error uniendose a la partida'}, room=sid)
@@ -62,7 +61,7 @@ class WebSocketManager:
             await self.sio.leave_room(sid, room)
 
             # notificar a otros jugadores
-            await self.sio.emit('player_disconnected', {
+            await self.sio.emit('leaved_room', {
                 'user_id': user_id,
                 'game_id': game_id,
                 'timestamp': datetime.now().isoformat()
