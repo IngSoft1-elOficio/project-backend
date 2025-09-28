@@ -78,18 +78,22 @@ async def skip_turn(
 
     new_card.is_in = CardState.HAND
     new_card.player_id = user_id
+    new_card.position = 0
     db.add(new_card)
 
-    # Avanzar turno (busco jugadores en la room)
+    # Avanzar turno 
     room = db.query(Room).filter(Room.id_game == game_id).first()
     players = db.query(Player).filter(Player.id_room == room.id).order_by(Player.order.asc()).all()
-    player_ids = [p.id for p in players]
-    idx = player_ids.index(user_id)
-    next_turn = player_ids[(idx + 1) % len(player_ids)]
-    game.player_turn_id = next_turn
-
+    
+    current_order = next((p.order for p in players if p.id == user_id), None)
+    next_order = (current_order + 1) % len(players)
+    next_player_id = next((p.id for p in players if p.order == next_order), None)
+    game.player_turn_id = next_player_id
+    
     db.commit()
     db.refresh(game)
+    
+    player_ids = [p.id for p in players]
 
     # Emitir por websocket
     ws_service = get_websocket_service()
