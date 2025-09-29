@@ -48,6 +48,7 @@ class RoomResponse(BaseModel):
     player_qty: int
     status: str
     host_id: int
+    game_id: int 
     model_config = {"from_attributes": True}
 
 class GameResponse(BaseModel):
@@ -108,8 +109,9 @@ def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
                 id=new_room.id,
                 name=new_room.name,
                 player_qty=new_room.player_qty,
-                status=new_room.status.value,  # Convert enum to string
-                host_id=new_player.id
+                status=new_room.status.value, 
+                host_id=new_player.id,
+                game_id=new_game.id   
             ),
             players=[
                 PlayerResponse(
@@ -121,6 +123,7 @@ def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
                 )
             ]
         )
+
         
     except HTTPException:
         raise  # Re-raise HTTP exceptions

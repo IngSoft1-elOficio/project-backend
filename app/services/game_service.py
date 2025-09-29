@@ -216,8 +216,6 @@ async def actualizar_turno(db, game):
         game.player_turn_id = ids[next_idx]
         db.commit()
 
-
-    
 async def emitir_eventos_ws(game, user_id, action, hand, deck, discard):
     ws = get_ws_manager()
 
@@ -226,8 +224,8 @@ async def emitir_eventos_ws(game, user_id, action, hand, deck, discard):
         "action": action,
         "hand": hand
     }
+    
     await ws.emit_to_room(game.id, "action_result", payload_action)
-
     await ws.emit_to_room(game.id, "deck_updated", deck)
     await ws.emit_to_room(game.id, "discard_updated", discard)
     await ws.emit_to_room(game.id, "turn_updated", {"current_player_id": user_id})

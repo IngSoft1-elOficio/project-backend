@@ -17,13 +17,17 @@ class WebSocketService:
             self, game_id: int, 
             jugador_que_actuo: Optional[int] = None, 
             game_state: Optional[Dict[str, Any]] = None, 
-            partida_finalizada: bool = False, 
+            partida_finalizada: bool = False,
             ganador_id: Optional[int] = None
     ):
         """Envia notificaciones publicas y privadas del estado del juego"""
 
+        print("🎮 Notifying game {game_id}")
+
         # Obtengo manager y los sids activos
-        sids = await self.ws_manager.get_sids_in_game(game_id)
+        sids = self.ws_manager.get_sids_in_game(game_id)
+
+        logger.info(f"🎮 Notifying game {game_id}, found {len(sids)} connected players: {sids}")
 
         if not sids:
             logger.warning(f"room {game_id} vacia")
@@ -32,6 +36,7 @@ class WebSocketService:
         mensaje_publico = {
             "type": "game_state_public",
             "game_id": game_id,
+            "status": game_state.get("status"),
             "turno_actual": game_state.get("turno_actual") if game_state else jugador_que_actuo,
             "jugadores": game_state.get("jugadores") if game_state else [],
             "mazos": game_state.get("mazos") if game_state else {},
@@ -40,6 +45,7 @@ class WebSocketService:
 
         # Emito el mensaje publico a los jugadores en el room
         await self.ws_manager.emit_to_room(game_id, "game_state_public", mensaje_publico)
+        logger.info(f"✅ Emitted game_state_public to room {game_id}")
 
         # Mensajes privados
         for sid in sids:

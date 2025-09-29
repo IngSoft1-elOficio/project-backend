@@ -37,6 +37,15 @@ class WebSocketManager:
                 'game_id': game_id,
                 'timestamp': datetime.now().isoformat()
             }, room=room, skip_sid=sid)
+
+            await self.sio.emit('game_state_public', {
+                'game_id': game_id,
+                'status': 'WAITING',
+                'turno_actual': None,
+                'jugadores': await self.get_room_participants(game_id),
+                'mazos': {},
+                'timestamp': datetime.now().isoformat()
+            }, room=room)
             
             logger.info(f"Usuario {user_id} se unió a room {room}")
             return True
