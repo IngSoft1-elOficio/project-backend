@@ -12,61 +12,50 @@ class WebSocketService:
         self.ws_manager = get_ws_manager()
     
     # Aca impementar los servicios del socket 
-
     async def notificar_estado_partida(
-            self, game_id: int, 
-            jugador_que_actuo: Optional[int] = None, 
-            game_state: Optional[Dict[str, Any]] = None, 
+            self,
+            room_id: int,
+            jugador_que_actuo: Optional[int] = None,
+            game_state: Optional[Dict] = None,
             partida_finalizada: bool = False,
             ganador_id: Optional[int] = None
-    ):
-        """Envia notificaciones publicas y privadas del estado del juego"""
+        ):
 
-        print("🎮 Notifying game {game_id}")
-
-        # Obtengo manager y los sids activos
-        sids = self.ws_manager.get_sids_in_game(game_id)
-
-        logger.info(f"🎮 Notifying game {game_id}, found {len(sids)} connected players: {sids}")
-
+        logger.info(f"🎮 Notifying room {room_id}")
+        sids = self.ws_manager.get_sids_in_game(room_id)
+        logger.info(f"Found {len(sids)} connected players in room {room_id}: {sids}")
         if not sids:
-            logger.warning(f"room {game_id} vacia")
+            logger.warning(f"Room {room_id} vacia")
             return
-        
+
         mensaje_publico = {
             "type": "game_state_public",
-            "game_id": game_id,
-            "status": game_state.get("status"),
+            "room_id": room_id,
+            "game_id": game_state.get("game_id") if game_state else None,
+            "status": game_state.get("status") if game_state else "WAITING",
             "turno_actual": game_state.get("turno_actual") if game_state else jugador_que_actuo,
-            "jugadores": game_state.get("jugadores") if game_state else [],
-            "mazos": game_state.get("mazos") if game_state else {},
+            "jugadores": game_state.get("jugadores", []),
+            "mazos": game_state.get("mazos", {}),
             "timestamp": datetime.now().isoformat()
         }
+        await self.ws_manager.emit_to_room(room_id, "game_state_public", mensaje_publico)
+        logger.info(f"✅ Emitted game_state_public to room {room_id}")
 
-        # Emito el mensaje publico a los jugadores en el room
-        await self.ws_manager.emit_to_room(game_id, "game_state_public", mensaje_publico)
-        logger.info(f"✅ Emitted game_state_public to room {game_id}")
-
-        # Mensajes privados
         for sid in sids:
             session = self.ws_manager.get_user_session(sid)
             if not session:
                 continue
-            
             user_id = session["user_id"]
-
-            # Estado privado para cada jugador
             mensaje_privado = {
                 "type": "game_state_private",
                 "user_id": user_id,
                 "mano": game_state.get("manos", {}).get(user_id, []) if game_state else [],
-                "secretos": game_state.get("secretos", {}).get(user_id, []) if game_state else [],
+                "secretos": [game_state.get("secretos", {}).get(user_id)] if game_state and game_state.get("secretos", {}).get(user_id) else [],
                 "timestamp": datetime.now().isoformat()
             }
-
             await self.ws_manager.emit_to_sid(sid, "game_state_private", mensaje_privado)
+            logger.info(f"Emitted game_state_private to user {user_id} in room {room_id}")
 
-            # Feedback de la accion
             if jugador_que_actuo and user_id == jugador_que_actuo:
                 feedback = {
                     "type": "player_action_result",
@@ -74,10 +63,7 @@ class WebSocketService:
                     "mensaje": "Accion valida",
                     "timestamp": datetime.now().isoformat()
                 }
-
                 await self.ws_manager.emit_to_sid(sid, "player_action_result", feedback)
-            
-            # Partida finalizada
             if partida_finalizada:
                 resultado = {
                     "type": "game_ended",
@@ -85,7 +71,6 @@ class WebSocketService:
                     "ganaste": True if ganador_id and user_id == ganador_id else False,
                     "timestamp": datetime.now().isoformat()
                 }
-
                 await self.ws_manager.emit_to_sid(sid, "game_ended", resultado)
 
 
