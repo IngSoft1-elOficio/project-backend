@@ -100,6 +100,8 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
         
         # Get current players in the room
         current_players = crud.list_players_by_room(db, room_id)
+
+        print(current_players)
         
         # Check if room is full
         if len(current_players) >= room.player_qty:

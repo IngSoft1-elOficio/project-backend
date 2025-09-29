@@ -63,6 +63,8 @@ async def join_game(room_id: int, request: JoinGameRequest, db: Session = Depend
         # Format response
         room_data = result["room"]
         players_data = result["players"]
+
+        
         
         return JoinGameResponse(
             room=RoomResponse(
