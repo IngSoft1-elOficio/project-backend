@@ -87,7 +87,7 @@ async def procesar_ultima_carta(game_id: int, carta: str, game_state: Dict):
         logger.debug(f"Mazo restante: {mazo} cartas, game_id {game_id}")
 
 
-def join_game(db: Session, room_id: int, player_data: dict):
+def join_game_logic(db: Session, room_id: int, player_data: dict):
     try:
         # Get room by id
         room = crud.get_room_by_id(db, room_id)
@@ -114,10 +114,10 @@ def join_game(db: Session, room_id: int, player_data: dict):
         # Prepare player data for creation
         new_player_data = {
             "name": player_data["name"],
-            "avatar": player_data["avatar"],
+            "avatar_src": player_data["avatar"],  # 👈 usar el nombre del modelo
             "birthdate": birthdate_obj,
             "id_room": room_id,
-            "is_host": False  # El host es el creador
+            "is_host": False
         }
         
         # Create the new player

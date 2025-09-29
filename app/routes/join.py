@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List
+from typing import List, Dict
 from datetime import date
 from ..db.database import SessionLocal
 from ..db.models import Room, Player, RoomStatus
@@ -45,8 +45,10 @@ class JoinGameResponse(BaseModel):
 # Endpoint: POST /game/{room_id}/join
 @router.post("/game/{room_id}/join", response_model=JoinGameResponse)
 async def join_game(room_id: int, request: JoinGameRequest, db: Session = Depends(get_db)):
+    print(room_id, "    ---- ", request)
+
     try:
-        result = await join_game_logic(db, room_id, request.dict())
+        result = join_game_logic(db, room_id, request.dict())
         
         if not result["success"]:
             if result["error"] == "room_not_found":
@@ -73,7 +75,7 @@ async def join_game(room_id: int, request: JoinGameRequest, db: Session = Depend
                 PlayerResponse(
                     id=p.id,
                     name=p.name,
-                    avatar=p.avatar,
+                    avatar=p.avatar_src, 
                     birthdate=p.birthdate.strftime("%Y-%m-%d") if isinstance(p.birthdate, date) else p.birthdate,
                     is_host=p.is_host
                 ) for p in players_data

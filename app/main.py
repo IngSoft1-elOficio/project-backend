@@ -45,6 +45,8 @@ from app.routes import game
 app.include_router(game.router)
 from app.routes import start
 app.include_router(start.router)
+from app.routes import join
+app.include_router(join.router)
 
 # Aplicación ASGI con Socket.IO
 socket_app = socketio.ASGIApp(sio, app)
