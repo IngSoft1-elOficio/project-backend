@@ -48,6 +48,7 @@ class RoomResponse(BaseModel):
     player_qty: int
     status: str
     host_id: int
+    game_id: int 
     model_config = {"from_attributes": True}
 
 class GameResponse(BaseModel):
@@ -71,11 +72,11 @@ def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
                 detail="Ya existe una partida con ese nombre"
             )
         
-        # 1. Create Game first (parent table)
+        # Create Game first (parent table)
         game_data = {}
         new_game = crud.create_game(db, game_data)
         
-        # 2. Create Room linked to Game
+        # Create Room linked to Game
         room_data = {
             "name": newgame.room.nombre_partida,
             "player_qty": newgame.room.jugadores,
@@ -84,7 +85,7 @@ def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
         }
         new_room = crud.create_room(db, room_data)
         
-        # 3. Create Host Player linked to Room
+        # Create Host Player linked to Room
         # Convert string date to date object
         try:
             birthdate_obj = datetime.strptime(newgame.player.fechaNacimiento, "%Y-%m-%d").date()
@@ -102,14 +103,15 @@ def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
         }
         new_player = crud.create_player(db, player_data)
         
-        # 6. Return response
+        # Return response
         return GameResponse(
             room=RoomResponse(
                 id=new_room.id,
                 name=new_room.name,
                 player_qty=new_room.player_qty,
-                status=new_room.status.value,  # Convert enum to string
-                host_id=new_player.id
+                status=new_room.status.value, 
+                host_id=new_player.id,
+                game_id=new_game.id   
             ),
             players=[
                 PlayerResponse(
@@ -131,21 +133,3 @@ def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno al crear la partida"
         )
-
-@router.get(
-    "/game/{game_id}/status",
-    response_model=GameStateView,
-    status_code=status.HTTP_200_OK,
-    responses={
-        404: {"model": ErrorResponse, "description": "Partida o sala no encontrada"},
-        403: {"model": ErrorResponse, "description": "Usuario no autorizado"}
-    },
-    tags=["Games"]
-)
-async def get_game_status(
-    game_id: int,
-    user_id: int,  
-    db: Session = Depends(get_db)
-) -> GameStateView:
-    """Obtiene el estado actual de una partida."""
-    return get_game_status_service(db, game_id, user_id)

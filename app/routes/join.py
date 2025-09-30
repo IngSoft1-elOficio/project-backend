@@ -21,7 +21,7 @@ def get_db():
 class JoinGameRequest(BaseModel):
     name: str
     avatar: str
-    birthdate: str  # Format: "YYYY-MM-DD"
+    birthdate: str  # Formato: "YYYY-MM-DD"
 
 class PlayerResponse(BaseModel):
     id: int

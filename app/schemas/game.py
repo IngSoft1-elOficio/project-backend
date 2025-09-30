@@ -12,5 +12,4 @@ class GameResponse(BaseModel):
     jugadores: int
     estado: str
     host_id: int
-
     model_config = {"from_attributes": True}

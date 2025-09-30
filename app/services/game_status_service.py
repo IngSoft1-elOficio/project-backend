@@ -7,7 +7,6 @@ from app.schemas.game_status_schema import (
     STATUS_MAPPING
 )
 
-
 def get_game_status_service(db: Session, game_id: int, user_id: int) -> GameStateView:
     """Recupera el estado de la partida y valida la pertenencia del usuario."""
     

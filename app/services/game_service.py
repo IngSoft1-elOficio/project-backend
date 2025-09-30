@@ -47,44 +47,47 @@ async def finalizar_partida(game_id: int, winners: List[Dict]):
     finally:
         db.close()
 
-
-async def procesar_ultima_carta(game_id: int, carta: str, game_state: Dict):
+async def procesar_ultima_carta(game_id: int, room_id: int, carta: str, game_state: Dict, jugador_que_actuo: int):
     """Procesa la última carta del mazo y detecta el final de la partida"""
-    ws_service = get_websocket_service_instance()
-    mazo = game_state.get("deck", {}).get("remaining", 0)
+    from app.sockets.socket_service import get_websocket_service
+    
+    deck_remaining = game_state.get("mazos", {}).get("deck", 0)
 
-    if mazo > 0:
-        game_state["deck"]["remaining"] = mazo - 1
-        mazo -= 1
-
-    if mazo == 0:
+    if deck_remaining == 0:
         logger.info(f"Fin de mazo alcanzado en game_id {game_id}")
         winners: List[Dict] = []
 
-        if carta == "The murderer escapes":
-            asesino_id = get_asesino(game_state)
-            accomp_id = get_complice(game_state)
-            if asesino_id:
-                winners.append({"role": "murderer", "player_id": asesino_id})
-            if accomp_id:
-                winners.append({"role": "accomplice", "player_id": accomp_id})
+        if carta == "Murder Escapes":
+            # Find murderer and accomplice from secretos
+            for player_id, secrets in game_state.get("secretos", {}).items():
+                for secret in secrets:
+                    if secret["name"] == "Secret Murderer":
+                        winners.append({"role": "murderer", "player_id": player_id})
+                    elif secret["name"] == "Secret Accomplice":
+                        winners.append({"role": "accomplice", "player_id": player_id})
 
-        game_state["game"]["status"] = "finished"
-        game_state["winners"] = winners
-
+        # Update game state to finished
+        game_state["status"] = "FINISH"
+        
+        # Mark room as finished in database
         await finalizar_partida(game_id, winners)
 
-        await ws_service.emit_to_room(
-            game_id,
-            "game_finished",
-            {"winners": winners, "reason": "deck_exhausted_murderer_wins"}
+        # Add winners info to game_state
+        game_state["winners"] = winners
+        game_state["game_finished"] = True
+        game_state["finish_reason"] = "deck_exhausted_murderer_wins"
+
+        # Use notificar_estado_partida for consistency
+        ws_service = get_websocket_service()
+        await ws_service.notificar_estado_partida(
+            room_id=room_id,
+            jugador_que_actuo=jugador_que_actuo,
+            game_state=game_state,
+            partida_finalizada=True,
+            ganador_id=winners[0]["player_id"] if winners else None  # Primary winner (murderer)
         )
-
-        await ws_service.emit_to_room(game_id, "game_state", game_state)
-
+        
         logger.info(f"Partida {game_id} finalizada, winners: {winners}")
-    else:
-        logger.debug(f"Mazo restante: {mazo} cartas, game_id {game_id}")
 
 
 def join_game_logic(db: Session, room_id: int, player_data: dict):
@@ -100,6 +103,8 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
         
         # Get current players in the room
         current_players = crud.list_players_by_room(db, room_id)
+
+        print(current_players)
         
         # Check if room is full
         if len(current_players) >= room.player_qty:
@@ -213,20 +218,3 @@ async def actualizar_turno(db, game):
         next_idx = (idx + 1) % len(ids)
         game.player_turn_id = ids[next_idx]
         db.commit()
-
-
-    
-async def emitir_eventos_ws(game, user_id, action, hand, deck, discard):
-    ws = get_ws_manager()
-
-    payload_action = {
-        "room_id": game.id,
-        "action": action,
-        "hand": hand
-    }
-    await ws.emit_to_room(game.id, "action_result", payload_action)
-
-    await ws.emit_to_room(game.id, "deck_updated", deck)
-    await ws.emit_to_room(game.id, "discard_updated", discard)
-    await ws.emit_to_room(game.id, "turn_updated", {"current_player_id": user_id})
-

@@ -8,6 +8,7 @@ class CardSummary(BaseModel):
     id: int
     name: str
     type: str
+    img: Optional[str] = None  
 
 class ActionResult(BaseModel):
     discarded: List[CardSummary]
