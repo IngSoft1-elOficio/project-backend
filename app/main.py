@@ -9,34 +9,54 @@ app = FastAPI(
     title=settings.APP_NAME,
     description="Backend API with FastAPI and WebSocket support",
     version="1.0.0",
-    docs_url="/docs",  # Documentación automática en /docs
+    docs_url="/docs",
     redoc_url="/redoc"
 )
 
 # Configurar CORS para desarrollo
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins="*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configurar SocketIO para WebSocket
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=settings.ALLOWED_ORIGINS)
-socket_app = socketio.ASGIApp(sio)
-app.mount("/socket.io", socket_app)
+# Configurar Socket.IO para WebSocket
+sio = socketio.AsyncServer(
+    async_mode="asgi",
+    cors_allowed_origins="*",
+    logger=True,          # para debugear
+    engineio_logger=True
+)
 
-# Ruta de prueba
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "environment": settings.ENVIRONMENT}
+# Inicializar manager global
+from app.sockets.socket_manager import init_ws_manager
+init_ws_manager(sio)
+
+# Importar y registrar eventos de Socket
+from app.sockets.socket_events import register_events
+register_events(sio)
 
 # Incluir rutas de la API
 from app.routes import api
 app.include_router(api.router)
+from app.routes import game
+app.include_router(game.router)
+from app.routes import start
+app.include_router(start.router)
+from app.routes import join
+app.include_router(join.router)
+from app.routes import discard
+app.include_router(discard.router)
+from app.routes import skip_turn
+app.include_router(skip_turn.router)
 
-# Incluir eventos de WebSocket
-from app.sockets import socket_events
-sio.on("connect", socket_events.handle_connect)
-sio.on("disconnect", socket_events.handle_disconnect)
+# Aplicación ASGI con Socket.IO
+socket_app = socketio.ASGIApp(sio, app)
+
+# Ruta de prueba para health check
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "environment": settings.ENVIRONMENT}
+
