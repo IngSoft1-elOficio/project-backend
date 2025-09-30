@@ -47,6 +47,10 @@ from app.routes import start
 app.include_router(start.router)
 from app.routes import join
 app.include_router(join.router)
+from app.routes import discard
+app.include_router(discard.router)
+from app.routes import skip_turn
+app.include_router(skip_turn.router)
 
 # Aplicación ASGI con Socket.IO
 socket_app = socketio.ASGIApp(sio, app)

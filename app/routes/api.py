@@ -32,11 +32,6 @@ class GameListResponse(BaseModel):
     page: int
     limit: int
 
-# Test endpoint
-@router.get("/test")
-async def test_endpoint():
-    return {"message": "Test endpoint is working!"}
-
 # GET /api/game_list
 @router.get("/game_list", response_model=GameListResponse)
 def get_game_list(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
@@ -74,7 +69,6 @@ def get_game_list(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=10
         end = start + limit
         paginated = available[start:end]
 
-        # Commit transaction (optional for read-only, but ensures consistency)
         db.commit()
         logger.debug(f"Returning {len(paginated)} games for page {page}, limit {limit}")
 

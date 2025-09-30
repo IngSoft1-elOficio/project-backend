@@ -21,7 +21,7 @@ def get_db():
 class JoinGameRequest(BaseModel):
     name: str
     avatar: str
-    birthdate: str  # Format: "YYYY-MM-DD"
+    birthdate: str  # Formato: "YYYY-MM-DD"
 
 class PlayerResponse(BaseModel):
     id: int
@@ -63,8 +63,6 @@ async def join_game(room_id: int, request: JoinGameRequest, db: Session = Depend
         # Format response
         room_data = result["room"]
         players_data = result["players"]
-
-        
         
         return JoinGameResponse(
             room=RoomResponse(

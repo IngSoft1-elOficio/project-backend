@@ -28,10 +28,8 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         # Buscar sala
         room = db.query(Room).filter(Room.id == room_id).first()
         if not room:
-        
             raise HTTPException(status_code=404, detail="Sala no encontrada")
         
-
         # Validar estado de la sala
         if room.status != RoomStatus.WAITING:
             raise HTTPException(status_code=409, detail=f"La sala no está en estado WAITING (actual: {room.status})")
