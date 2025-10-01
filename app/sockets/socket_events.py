@@ -11,7 +11,7 @@ def register_events(sio: socketio.AsyncServer):
     """Registra todos los eventos de socketIO"""
 
     # inicializar manager
-    ws_manager = init_ws_manager(sio)
+    ws_manager = get_ws_manager()
 
     @sio.event
     async def connect(sid, environ):

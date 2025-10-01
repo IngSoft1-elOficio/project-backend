@@ -32,7 +32,8 @@ sio = socketio.AsyncServer(
 
 # Inicializar manager global
 from app.sockets.socket_manager import init_ws_manager
-init_ws_manager(sio)
+from app.db.database import SessionLocal
+init_ws_manager(sio, lambda: SessionLocal())
 
 # Importar y registrar eventos de Socket
 from app.sockets.socket_events import register_events
