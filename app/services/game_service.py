@@ -105,6 +105,9 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
         current_players = crud.list_players_by_room(db, room_id)
 
         print(current_players)
+
+        # Calculate next order for players
+        next_order = len(current_players) + 1
         
         # Check if room is full
         if len(current_players) >= room.player_qty:
@@ -122,7 +125,8 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
             "avatar_src": player_data["avatar"],  # 👈 usar el nombre del modelo
             "birthdate": birthdate_obj,
             "id_room": room_id,
-            "is_host": False
+            "is_host": False,
+            "order": next_order
         }
         
         # Create the new player
