@@ -114,6 +114,45 @@ async def discard_cards(
         }
     )
 
+    print(f"response: {response.discard.top}")
+
+    game_state={
+        "game_id": game.id,
+        "status": "INGAME",
+        "turno_actual": game.player_turn_id,
+        "jugadores": [{"id": p.id, "name": p.name, "is_host": p.is_host, "order": p.order} for p in players],
+        "mazos": {
+            "deck": response.deck.remaining,  
+            "discard": {
+                "top": response.discard.top.model_dump() if response.discard.top else None,  
+                "count": response.discard.count
+            }
+        },
+        "manos": {
+            p.id: [
+                {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
+                for c in db.query(CardsXGame).filter(
+                    CardsXGame.id_game == game.id,
+                    CardsXGame.player_id == p.id,
+                    CardsXGame.is_in == CardState.HAND
+                ).all()
+            ]
+            for p in players
+        },
+        "secretos": {
+            p.id: [
+                {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
+                for c in db.query(CardsXGame).filter(
+                    CardsXGame.id_game == game.id,
+                    CardsXGame.player_id == p.id,
+                    CardsXGame.is_in == CardState.SECRET_SET
+                ).all()
+            ]
+            for p in players
+        },
+        "timestamp": datetime.now().isoformat()
+    }
+
     # Check for game end
     if deck_count == 0 and drawn:
         from app.services.game_service import procesar_ultima_carta
@@ -130,39 +169,7 @@ async def discard_cards(
         await ws_service.notificar_estado_partida(
             room_id=room_id,
             jugador_que_actuo=user_id,
-            game_state={
-                "game_id": game.id,
-                "status": "INGAME",
-                "turno_actual": game.player_turn_id,
-                "jugadores": [{"id": p.id, "name": p.name, "is_host": p.is_host, "order": p.order} for p in players],
-                "mazos": {
-                    "deck": response.deck.remaining,  
-                    "discard": response.discard.count,  
-                },
-                "manos": {
-                    p.id: [
-                        {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
-                        for c in db.query(CardsXGame).filter(
-                            CardsXGame.id_game == game.id,
-                            CardsXGame.player_id == p.id,
-                            CardsXGame.is_in == CardState.HAND
-                        ).all()
-                    ]
-                    for p in players
-                },
-                "secretos": {
-                    p.id: [
-                        {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
-                        for c in db.query(CardsXGame).filter(
-                            CardsXGame.id_game == game.id,
-                            CardsXGame.player_id == p.id,
-                            CardsXGame.is_in == CardState.SECRET_SET
-                        ).all()
-                    ]
-                    for p in players
-                },
-                "timestamp": datetime.now().isoformat()
-            }
+            game_state=game_state
         )
     
-    return response
+    return response # no genera race condition porque no se actualiza el GameContext con la response.
