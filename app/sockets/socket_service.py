@@ -17,12 +17,11 @@ class WebSocketService:
         jugador_que_actuo: Optional[int] = None,
         game_state: Optional[Dict] = None,
         partida_finalizada: bool = False,
-        ganador_id: Optional[int] = None
     ):
         logger.info(f"🎮 Notifying room {room_id}")
         sids = self.ws_manager.get_sids_in_game(room_id)
         logger.info(f"Found {len(sids)} connected players in room {room_id}: {sids}")
-        
+
         if not sids:
             logger.warning(f"Room {room_id} vacia")
             return
@@ -35,11 +34,11 @@ class WebSocketService:
             "turno_actual": game_state.get("turno_actual") if game_state else jugador_que_actuo,
             "jugadores": game_state.get("jugadores", []),
             "mazos": game_state.get("mazos", {}),
-            "game_ended": partida_finalizada,  # Add this
-            "winners": game_state.get("winners", []) if partida_finalizada else [],  # Add this
-            "finish_reason": game_state.get("finish_reason") if partida_finalizada else None,  # Add this
+            "game_ended": partida_finalizada,  
+            "winners": game_state.get("winners", []) if partida_finalizada else [],  
+            "finish_reason": game_state.get("finish_reason") if partida_finalizada else None,  
             "timestamp": datetime.now().isoformat()
-        }
+        }                                                   
         
         await self.ws_manager.emit_to_room(room_id, "game_state_public", mensaje_publico)
         logger.info(f"✅ Emitted game_state_public to room {room_id}")
