@@ -1,8 +1,12 @@
 from pydantic import BaseModel
 from typing import List, Optional
 
+class CardWithOrder(BaseModel):
+    order: int
+    card_id: int
+
 class DiscardRequest(BaseModel):
-    card_ids: List[int]
+    card_ids: List[CardWithOrder]
 
 class CardSummary(BaseModel):
     id: int
