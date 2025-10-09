@@ -11,6 +11,23 @@ class WebSocketService:
     def __init__(self):
         self.ws_manager = get_ws_manager()
     
+    async def emit_to_room(self, room_id: int, event: str, data: Dict):
+        """Emite un evento a todos los usuarios en una sala"""
+        await self.ws_manager.emit_to_room(room_id, event, data)
+        logger.info(f"Emitted {event} to room {room_id}")
+    
+    async def emit_to_user(self, user_id: int, event: str, data: Dict):
+        """Emite un evento a un usuario específico"""
+        # Buscar el SID del usuario
+        sids = self.ws_manager.get_sids_in_game(None)  # Obtener todos los SIDs
+        for sid in sids:
+            session = self.ws_manager.get_user_session(sid)
+            if session and session.get("user_id") == user_id:
+                await self.ws_manager.emit_to_sid(sid, event, data)
+                logger.info(f"Emitted {event} to user {user_id}")
+                return
+        logger.warning(f"User {user_id} not found for event {event}")
+    
     async def notificar_estado_partida(
         self,
         room_id: int,
@@ -35,14 +52,14 @@ class WebSocketService:
             "turno_actual": game_state.get("turno_actual") if game_state else jugador_que_actuo,
             "jugadores": game_state.get("jugadores", []),
             "mazos": game_state.get("mazos", {}),
-            "game_ended": partida_finalizada,  # Add this
-            "winners": game_state.get("winners", []) if partida_finalizada else [],  # Add this
-            "finish_reason": game_state.get("finish_reason") if partida_finalizada else None,  # Add this
+            "game_ended": partida_finalizada,
+            "winners": game_state.get("winners", []) if partida_finalizada else [],
+            "finish_reason": game_state.get("finish_reason") if partida_finalizada else None,
             "timestamp": datetime.now().isoformat()
         }
         
         await self.ws_manager.emit_to_room(room_id, "game_state_public", mensaje_publico)
-        logger.info(f"✅ Emitted game_state_public to room {room_id}")
+        logger.info(f"Emitted game_state_public to room {room_id}")
         
         for sid in sids:
             session = self.ws_manager.get_user_session(sid)

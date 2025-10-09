@@ -45,6 +45,11 @@ async def skip_turn(
     if game.player_turn_id != request.user_id:
         raise HTTPException(status_code=403, detail="not_your_turn")
     
+    deck_count_before = db.query(CardsXGame).filter(
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.DECK
+    ).count()
+    
     # Buscar cartas en la mano del jugador
     hand_cards = (
         db.query(CardsXGame).filter(
@@ -59,28 +64,38 @@ async def skip_turn(
 
     # Descartar primera carta
     discarded = hand_cards[0]
+    
+    # Calcular siguiente posición en discard
+    next_discard_pos = db.query(CardsXGame).filter(
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.DISCARD
+    ).count()
+    
     discarded.is_in = CardState.DISCARD
     discarded.player_id = None
+    discarded.position = next_discard_pos
     db.add(discarded)
+    db.commit()
 
-    # Robar del mazo
-    new_card = (
-        db.query(CardsXGame).filter(
-            CardsXGame.id_game == game.id,
-            CardsXGame.is_in == CardState.DECK
-        ).order_by(CardsXGame.position.asc()).first()
-    )
+    # ⭐ Robar del mazo (solo si hay cartas)
+    new_card = None
+    if deck_count_before > 0:
+        new_card = (
+            db.query(CardsXGame).filter(
+                CardsXGame.id_game == game.id,
+                CardsXGame.is_in == CardState.DECK
+            ).order_by(CardsXGame.position.asc()).first()
+        )
 
-    if not new_card:
-        raise HTTPException(status_code=400, detail="deck_empty")
+        if new_card:
+            new_card.is_in = CardState.HAND
+            new_card.player_id = request.user_id
+            new_card.position = 0
+            db.add(new_card)
+            db.commit()
     
-    new_card.is_in = CardState.HAND
-    new_card.player_id = request.user_id
-    new_card.position = 0
-    db.add(new_card)
-    
-    # CHECK IF DECK IS EMPTY AFTER DRAWING
-    deck_count = db.query(CardsXGame).filter(
+    # ⭐ Check deck count DESPUES de robar
+    deck_count_after = db.query(CardsXGame).filter(
         CardsXGame.id_game == game.id,
         CardsXGame.is_in == CardState.DECK
     ).count()
@@ -93,70 +108,128 @@ async def skip_turn(
     next_player = next((p for p in players if p.order == next_order), None)
     
     game.player_turn_id = next_player.id
-    
     db.commit()
     db.refresh(game)
     
-    # Build game state
-    game_state = {
-        "game_id": game.id,
-        "status": "INGAME",
-        "turno_actual": game.player_turn_id,
-        "jugadores": [{"id": p.id, "name": p.name, "is_host": p.is_host, "order": p.order} for p in players],
-        "mazos": {
-            "deck": deck_count,
-            "discard": db.query(CardsXGame).filter(
-                CardsXGame.id_game == game.id,
-                CardsXGame.is_in == CardState.DISCARD
-            ).count(),
-        },
-        "manos": {
-            p.id: [
-                {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
-                for c in db.query(CardsXGame).filter(
-                    CardsXGame.id_game == game.id,
-                    CardsXGame.player_id == p.id,
-                    CardsXGame.is_in == CardState.HAND
-                ).all()
-            ]
-            for p in players
-        },
-        "secretos": {
-            p.id: [
-                {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
-                for c in db.query(CardsXGame).filter(
-                    CardsXGame.id_game == game.id,
-                    CardsXGame.player_id == p.id,
-                    CardsXGame.is_in == CardState.SECRET_SET
-                ).all()
-            ]
-            for p in players
-        },
-        "timestamp": datetime.now().isoformat()
-    }
-       
-    # CHECK FOR GAME END
-    if deck_count == 0:
+    # ⭐ CHECK FOR GAME END (si se acabó el mazo Y robamos carta)
+    if deck_count_after == 0 and new_card:
         from app.services.game_service import procesar_ultima_carta
+        
+        # Construir game_state para procesar_ultima_carta
+        game_state_for_end = {
+            "game_id": game.id,
+            "room_id": room_id,
+            "status": "INGAME",
+            "turno_actual": game.player_turn_id,
+            "jugadores": [
+                {"id": p.id, "name": p.name, "is_host": p.is_host, "order": p.order} 
+                for p in players
+            ],
+            "mazos": {
+                "deck": 0,
+                "discard": db.query(CardsXGame).filter(
+                    CardsXGame.id_game == game.id,
+                    CardsXGame.is_in == CardState.DISCARD
+                ).count(),
+            },
+            "secretos": {
+                p.id: [
+                    {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
+                    for c in db.query(CardsXGame).filter(
+                        CardsXGame.id_game == game.id,
+                        CardsXGame.player_id == p.id,
+                        CardsXGame.is_in == CardState.SECRET_SET
+                    ).all()
+                ]
+                for p in players
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
         await procesar_ultima_carta(
             game_id=game.id,
             room_id=room_id,
             carta=new_card.card.name,
-            game_state=game_state,
+            game_state=game_state_for_end,
             jugador_que_actuo=request.user_id
         )
     else:
-        # Normal notification if game not finished
+        # ⭐ ESTADO PÚBLICO (sin manos) - para TODOS
+        game_state_public = {
+            "game_id": game.id,
+            "room_id": room_id,
+            "status": "INGAME",
+            "turno_actual": game.player_turn_id,
+            "jugadores": [
+                {
+                    "id": p.id, 
+                    "name": p.name, 
+                    "is_host": p.is_host, 
+                    "order": p.order,
+                    "card_count": db.query(CardsXGame).filter(
+                        CardsXGame.id_game == game.id,
+                        CardsXGame.player_id == p.id,
+                        CardsXGame.is_in == CardState.HAND
+                    ).count()
+                } 
+                for p in players
+            ],
+            "mazos": {
+                "deck": deck_count_after,
+                "discard": db.query(CardsXGame).filter(
+                    CardsXGame.id_game == game.id,
+                    CardsXGame.is_in == CardState.DISCARD
+                ).count(),
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Enviar estado público a todos
         ws_service = get_websocket_service()
-        await ws_service.notificar_estado_partida(
+        await ws_service.emit_to_room(
             room_id=room_id,
-            jugador_que_actuo=request.user_id,
-            game_state=game_state
+            event="game_state_public",
+            data=game_state_public
         )
+        
+        for player in players:
+            player_hand = [
+                {"id": c.id_card, "name": c.card.name, "type": c.card.type.value, "img": c.card.img_src}
+                for c in db.query(CardsXGame).filter(
+                    CardsXGame.id_game == game.id,
+                    CardsXGame.player_id == player.id,
+                    CardsXGame.is_in == CardState.HAND
+                ).all()
+            ]
+            
+            player_secrets = [
+                {"id": c.id_card, "name": c.card.name, "type": c.card.type.value, "img": c.card.img_src}
+                for c in db.query(CardsXGame).filter(
+                    CardsXGame.id_game == game.id,
+                    CardsXGame.player_id == player.id,
+                    CardsXGame.is_in == CardState.SECRET_SET
+                ).all()
+            ]
+            
+            game_state_private = {
+                "player_id": player.id,
+                "mano": player_hand,
+                "secretos": player_secrets,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Buscar el SID del jugador y enviar directamente
+            sids = ws_service.ws_manager.get_sids_in_game(room_id)
+            for sid in sids:
+                session = ws_service.ws_manager.get_user_session(sid)
+                if session and session.get("user_id") == player.id:
+                    await ws_service.ws_manager.emit_to_sid(sid, "game_state_private", game_state_private)
+                    break
     
     return {
         "status": "ok",
         "discarded_card_id": discarded.id_card,
-        "new_card_id": new_card.id_card,
-        "next_turn": next_player.id
+        "new_card_id": new_card.id_card if new_card else None,
+        "next_turn": next_player.id,
+        "deck_empty": deck_count_after == 0
     }
