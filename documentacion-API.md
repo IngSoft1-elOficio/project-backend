@@ -25,28 +25,29 @@ Esta sección refleja los modelos actuales del backend (SQLAlchemy) y agrega "vi
 
 - **CardType**: "EVENT" | "SECRET" | "INSTANT" | "DEVIUOS" | "DETECTIVE" | "END"
 - **RoomStatus**: "WAITING" | "INGAME" | "FINISH"
-- **CardState**: "DECK" | "SELECT" | "DISCARD" | "SECRET_SET" | "DETECTIVE_SET" | "HAND"
+- **CardState**: "DECK" | "DRAFT" | "DISCARD" | "SECRET_SET" | "DETECTIVE_SET" | "HAND"
 
 ### 3.2 Entidades persistentes (DB)
 
 **Game**
 - id: integer
-- player_turn_id: integer | null
+- player_turn_id: integer | null (FK a Player)
 
 **Room**
 - id: integer
 - name: string
-- player_qty: integer
+- players_min: integer (default: 2)
+- players_max: integer (default: 6)
 - password: string | null
 - status: RoomStatus
-- id_game: integer
+- id_game: integer (FK a Game)
 
 **Player**
 - id: integer
 - name: string
 - avatar_src: string
 - birthdate: date (YYYY-MM-DD)
-- id_room: integer
+- id_room: integer (FK a Room)
 - is_host: boolean
 - order: integer | null
 
@@ -56,14 +57,28 @@ Esta sección refleja los modelos actuales del backend (SQLAlchemy) y agrega "vi
 - description: string
 - type: CardType
 - img_src: string (URL o ruta)
+- qty: integer // Cantidad disponible de cada carta
 
 **CardsXGame**
 - id: integer
-- id_game: integer
-- id_card: integer
+- id_game: integer (FK a Game)
+- id_card: integer (FK a Card)
 - is_in: CardState
 - position: integer
-- player_id: integer | null
+- player_id: integer | null (FK a Player)
+- hidden: boolean (default: true) // Indica si la carta es visible o no
+
+**ActionsPerTurn**
+- id: integer
+- id_game: integer (FK a Game)
+- action_time: datetime (default: CURRENT_TIMESTAMP)
+- actionName: string(40)
+- player_id: integer (FK a Player)
+- parent_action_id: integer | null (FK a ActionsPerTurn)
+- player_source: integer | null (FK a Player)
+- player_target: integer | null (FK a Player)
+- secret_target: integer | null (FK a CardsXGame)
+- to_be_hidden: boolean | null
 
 ### 3.3 View Models (API)
 
