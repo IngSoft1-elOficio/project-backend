@@ -4,11 +4,8 @@ from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.db.models import Game, Room, CardsXGame, CardState, Player
 from app.schemas.discard_schema import DiscardRequest, DiscardResponse
-from app.services.game_service import (
-    descartar_cartas,
-    robar_cartas_del_mazo,
-    actualizar_turno
-)
+from app.services.discard import descartar_cartas
+from app.services.game_service import actualizar_turno
 from app.sockets.socket_service import get_websocket_service
 from datetime import datetime
 
@@ -49,10 +46,13 @@ async def discard_cards(
         raise HTTPException(status_code=403, detail="forbidden")
     
     # validar cartas en la mano
-    card_ids = request.card_ids
-    if not card_ids:
+    card_ids_with_order = request.card_ids
+    if not card_ids_with_order:
         raise HTTPException(status_code=400, detail="validation_error: empty card list")
-    
+
+    card_ids = [c.card_id for c in card_ids_with_order]
+    print(f"🎯 Orden recibido del frontend: {card_ids_with_order}")
+
     player_cards = (
         db.query(CardsXGame)
         .filter(
@@ -66,12 +66,19 @@ async def discard_cards(
     
     if len(player_cards) != len(card_ids):
         raise HTTPException(status_code=400, detail="validation_error: invalid or not owned cards")
-    
+    print(f"❌ Orden después del query (DESORDENADO): {[c.id_card for c in player_cards]}")  # LOG 2
+
+    # reordenar cartas para mantener orden de descarte
+    card_dict = {card.id_card: card for card in player_cards}
+    ordered_player_cards = [card_dict[card_id] for card_id in card_ids]
+    print(f"✅ Orden corregido: {[c.id_card for c in ordered_player_cards]}")  # LOG 3
+
     # descartar
-    discarded = await descartar_cartas(db, game, user_id, card_ids)
+    discarded = await descartar_cartas(db, game, user_id, ordered_player_cards)
+    print(f"📤 Orden final descartado: {[c.id_card for c in discarded]}")  # LOG 4
     
     # reponer
-    drawn = await robar_cartas_del_mazo(db, game, user_id, len(discarded))
+    # drawn = await robar_cartas_del_mazo(db, game, user_id, len(discarded))
 
     # Check deck count
     deck_count = db.query(CardsXGame).filter(
@@ -95,7 +102,7 @@ async def discard_cards(
     response = DiscardResponse(
         action={
             "discarded": [to_card_summary(c) for c in discarded],
-            "drawn": [to_card_summary(c) for c in drawn]
+            "drawn": []
         },
         hand={
             "player_id": user_id,
@@ -154,7 +161,7 @@ async def discard_cards(
     }
 
     # Check for game end
-    if deck_count == 0 and drawn:
+    if deck_count == 0:
         from app.services.game_service import procesar_ultima_carta
         await procesar_ultima_carta(
             game_id=game.id,
@@ -172,4 +179,15 @@ async def discard_cards(
             game_state=game_state
         )
     
-    return response # no genera race condition porque no se actualiza el GameContext con la response.
+    # Verificar todo el mazo de descarte
+    all_discarded = db.query(CardsXGame).filter(
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.DISCARD
+    ).order_by(CardsXGame.position.asc()).all()
+
+    print(f"\n📚 MAZO DE DESCARTE COMPLETO (orden por position):")
+    for card in all_discarded:
+        print(f"  Position {card.position}: Carta {card.id_card} - {card.card.name if card.card else 'N/A'}")
+    print(f"Total: {len(all_discarded)} cartas\n")
+
+    return response
