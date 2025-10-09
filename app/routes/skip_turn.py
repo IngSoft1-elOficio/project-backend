@@ -77,7 +77,6 @@ async def skip_turn(
     db.add(discarded)
     db.commit()
 
-    # ⭐ Robar del mazo (solo si hay cartas)
     new_card = None
     if deck_count_before > 0:
         new_card = (
@@ -94,7 +93,6 @@ async def skip_turn(
             db.add(new_card)
             db.commit()
     
-    # ⭐ Check deck count DESPUES de robar
     deck_count_after = db.query(CardsXGame).filter(
         CardsXGame.id_game == game.id,
         CardsXGame.is_in == CardState.DECK
@@ -111,7 +109,6 @@ async def skip_turn(
     db.commit()
     db.refresh(game)
     
-    # ⭐ CHECK FOR GAME END (si se acabó el mazo Y robamos carta)
     if deck_count_after == 0 and new_card:
         from app.services.game_service import procesar_ultima_carta
         
@@ -154,7 +151,6 @@ async def skip_turn(
             jugador_que_actuo=request.user_id
         )
     else:
-        # ⭐ ESTADO PÚBLICO (sin manos) - para TODOS
         game_state_public = {
             "game_id": game.id,
             "room_id": room_id,

@@ -67,7 +67,6 @@ async def discard_cards(
     if len(player_cards) != len(card_ids):
         raise HTTPException(status_code=400, detail="validation_error: invalid or not owned cards")
     
-    # ⭐ Check deck count ANTES de descartar/robar
     deck_count_before = db.query(CardsXGame).filter(
         CardsXGame.id_game == game.id,
         CardsXGame.is_in == CardState.DECK
@@ -161,7 +160,6 @@ async def discard_cards(
             jugador_que_actuo=user_id
         )
     else:
-        # ⭐ ESTADO PÚBLICO (sin manos) - para TODOS
         game_state_public = {
             "game_id": game.id,
             "room_id": room_id,
@@ -196,7 +194,6 @@ async def discard_cards(
             data=game_state_public
         )
         
-        # ⭐ ESTADO PRIVADO - para CADA jugador individualmente
         for player in players:
             player_hand = [
                 {"id": c.id_card, "name": c.card.name, "type": c.card.type.value, "img": c.card.img_src}
