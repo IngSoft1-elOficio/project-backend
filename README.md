@@ -47,9 +47,11 @@ SECRET_KEY="developer_pass"
 ```
 
 
-# Crear tablas
+# Crear tablas y rellenar datos. 
 ```bash
+mysql -u developer -p -e "DROP DATABASE IF EXISTS cards_table_develop; CREATE DATABASE cards_table_develop;"
 python create_db.py
+mysql -u developer -p cards_table_develop < scripts/carga-datos.sql #Carga de datos iniciales
 ```
 ## Ejecutar tests unitarios
 ```bash
