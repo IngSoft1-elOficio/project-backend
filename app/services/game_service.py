@@ -122,7 +122,7 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
         # Prepare player data for creation
         new_player_data = {
             "name": player_data["name"],
-            "avatar_src": player_data["avatar"],  # 👈 usar el nombre del modelo
+            "avatar_src": player_data["avatar"],  
             "birthdate": birthdate_obj,
             "id_room": room_id,
             "is_host": False,
@@ -145,66 +145,6 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
     except Exception as e:
         print(f"Error in join_game_logic: {e}")
         return {"success": False, "error": "internal_error"}
-
-
-#funciones para descarte
-
-async def descartar_cartas(db, game, user_id, card_ids):
-    discarded = []
-
-    next_pos = db.query(CardsXGame).filter(
-        CardsXGame.id_game == game.id,
-        CardsXGame.is_in == CardState.DISCARD
-    ).count()
-
-    for i, card_id in enumerate(card_ids, start=1):
-        # elimina duplicados
-        db.query(CardsXGame).filter(
-            CardsXGame.id_game == game.id,
-            CardsXGame.id_card == card_id,
-            CardsXGame.player_id == user_id,
-            CardsXGame.is_in != CardState.HAND
-        ).delete(synchronize_session=False)
-
-        # descartar la carta
-        card = (
-            db.query(CardsXGame)
-            .filter(
-                CardsXGame.id_game == game.id,
-                CardsXGame.player_id == user_id,
-                CardsXGame.id_card == card_id,
-                CardsXGame.is_in == CardState.HAND
-            )
-            .first()
-        )
-        if card:
-            card.is_in = CardState.DISCARD
-            card.position = next_pos + i
-            discarded.append(card)
-
-    db.commit()
-    return discarded
-
-
-
-async def robar_cartas_del_mazo(db, game, user_id, cantidad):
-    from app.db.models import CardsXGame, CardState
-    
-    drawn = (
-        db.query(CardsXGame)
-        .filter(CardsXGame.id_game == game.id,
-                CardsXGame.is_in == CardState.DECK)
-        .order_by(CardsXGame.position)  
-        .limit(cantidad)
-        .all()
-    )
-    for card in drawn:
-        # resetear dueño
-        card.player_id = user_id
-        card.is_in = CardState.HAND
-
-    db.commit()
-    return drawn
 
 
 async def actualizar_turno(db, game):
