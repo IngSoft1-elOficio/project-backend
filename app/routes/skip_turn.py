@@ -115,10 +115,16 @@ async def skip_turn(
         "jugadores": [{"id": p.id, "name": p.name, "is_host": p.is_host, "order": p.order} for p in players],
         "mazos": {
             "deck": deck_count,
-            "discard": db.query(CardsXGame).filter(
+            "discard": {
+                "top": db.query(CardsXGame).filter(
                 CardsXGame.id_game == game.id,
                 CardsXGame.is_in == CardState.DISCARD
-            ).count(),
+            ).order_by(CardsXGame.position.asc()).first(), 
+                "count": db.query(CardsXGame).filter(
+                CardsXGame.id_game == game.id,
+                CardsXGame.is_in == CardState.DISCARD
+            ).count()
+            }
         },
         "manos": {
             p.id: [

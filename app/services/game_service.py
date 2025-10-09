@@ -122,7 +122,7 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
         # Prepare player data for creation
         new_player_data = {
             "name": player_data["name"],
-            "avatar_src": player_data["avatar"],  # 👈 usar el nombre del modelo
+            "avatar_src": player_data["avatar"],  
             "birthdate": birthdate_obj,
             "id_room": room_id,
             "is_host": False,
