@@ -1,15 +1,13 @@
 from pydantic import BaseModel
-from app.schemas.room import RoomCreate
-from app.schemas.player import PlayerCreate
+from app.schemas.room import RoomCreateRequest, RoomResponse
+from app.schemas.player import PlayerCreateRequest, PlayerResponse
+from typing import List
 
-class GameCreate(BaseModel):
-    room: RoomCreate
-    player: PlayerCreate
+class GameCreateRequest(BaseModel):
+    room: RoomCreateRequest
+    player: PlayerCreateRequest
 
 class GameResponse(BaseModel):
-    id_partida: int
-    nombre_partida: str
-    jugadores: int
-    estado: str
-    host_id: int
+    room: RoomResponse
+    players: List[PlayerResponse]
     model_config = {"from_attributes": True}

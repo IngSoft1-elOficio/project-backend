@@ -3,11 +3,8 @@ from sqlalchemy.orm import Session
 from app.db import crud
 from app.db.database import SessionLocal
 from app.db import models
-from app.schemas.game import GameCreate, GameResponse
-from app.services.game_status_service import get_game_status_service
-from app.schemas.game_status_schema import GameStateView, ErrorResponse
-from typing import Dict, List, Optional
-from datetime import datetime, date
+from app.schemas.game import GameCreateRequest, GameResponse, RoomResponse, PlayerResponse
+from datetime import datetime
 
 router = APIRouter()
 
@@ -18,50 +15,11 @@ def get_db():
     finally:
         db.close()
 
-from pydantic import BaseModel
-from datetime import date
-
-class PlayerCreateRequest(BaseModel):
-    nombre: str
-    avatar: str
-    fechaNacimiento: str
-
-class RoomCreateRequest(BaseModel):
-    nombre_partida: str
-    jugadores: int
-
-class GameCreateRequest(BaseModel):
-    room: RoomCreateRequest
-    player: PlayerCreateRequest
-
-class PlayerResponse(BaseModel):
-    id: int
-    name: str
-    avatar: str
-    birthdate: str
-    is_host: bool
-    model_config = {"from_attributes": True}
-
-class RoomResponse(BaseModel):
-    id: int
-    name: str
-    player_qty: int
-    status: str
-    host_id: int
-    game_id: int 
-    model_config = {"from_attributes": True}
-
-class GameResponse(BaseModel):
-    room: RoomResponse
-    players: List[PlayerResponse]
-    model_config = {"from_attributes": True}
-
 @router.post("/game", response_model=GameResponse, status_code=201)
 def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
     print("POST /game received:", newgame)
     
     try:
-        # Check if room name already exists
         existing_room = db.query(models.Room).filter(
             models.Room.name == newgame.room.nombre_partida
         ).first()
@@ -79,7 +37,8 @@ def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
         # Create Room linked to Game
         room_data = {
             "name": newgame.room.nombre_partida,
-            "player_qty": newgame.room.jugadores,
+            "players_min": newgame.room.jugadoresMin,
+            "players_max": newgame.room.jugadoresMax,
             "status": models.RoomStatus.WAITING,
             "id_game": new_game.id
         }
@@ -103,13 +62,13 @@ def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
         }
         new_player = crud.create_player(db, player_data)
         
-        # Return response
         return GameResponse(
             room=RoomResponse(
                 id=new_room.id,
                 name=new_room.name,
-                player_qty=new_room.player_qty,
-                status=new_room.status.value, 
+                players_min=new_room.players_min,
+                players_max=new_room.players_max,
+                status=new_room.status, 
                 host_id=new_player.id,
                 game_id=new_game.id   
             ),
@@ -118,7 +77,7 @@ def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
                     id=new_player.id,
                     name=new_player.name,
                     avatar=new_player.avatar_src,
-                    birthdate=new_player.birthdate.strftime("%Y-%m-%d"),
+                    birthdate=new_player.birthdate,
                     is_host=new_player.is_host
                 )
             ]
@@ -133,3 +92,4 @@ def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno al crear la partida"
         )
+    
