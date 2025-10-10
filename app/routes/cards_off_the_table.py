@@ -33,7 +33,7 @@ async def cards_off_the_table(
     db: Session = Depends(get_db)
 ):
     # Busco la sala
-    room = db.query(Room).filter(Room.id == room.id).first()
+    room = db.query(Room).filter(Room.id == room_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="room_not_found")
     
@@ -43,12 +43,37 @@ async def cards_off_the_table(
         raise HTTPException(status_code=404, detail="game_not_found")
     
     # Busco las cartas NSF en la mano del jugador
-    nsf_cards = (
-        db.query(CardsXGame).filter(
-            CardsXGame.player_id == Victim,
-            CardsXGame.id_game == game.id,
-            CardsXGame.is_in == CardState.HAND
-            CardsXGame.id_card == 13
-        )
+
+    # Busco al jugador
+    victim = db.query(Player).filter(Player.id == request.user_id).first()
+    if not victim:
+        raise HTTPException(status_code=404, detail="player_not_found")
     )
-    
+
+    player_cards = (db.query(CardsXGame)
+        .filter(
+            CardsXGame.player_id == user_id,
+            CardsXGame.id_game == game.id,
+            CardsXGame.is_in == CardState.HAND,
+            CardsXGame.id_card.in_(card_ids)
+        )
+        .all()
+    )
+
+    nsf_cards = [card for card in player_cards if card.id == 13]
+
+    count_nsf_hand = len(nsf_cards)
+
+    if count_nsf_hand == 0:
+
+    else:
+        for card_in_hand in nsf_cards:
+            card_in_game.state = CardState.DISCARD
+
+        db.commit()
+
+        # Repingo las cartas
+        robar_cartas_del_mazo(db, game.id, victim.id, count_nsf_hand)
+
+        db.refresh(player)
+
