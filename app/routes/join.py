@@ -95,6 +95,4 @@ async def join_game(room_id: int, request: JoinGameRequest, db: Session = Depend
         raise
     except Exception as e:
         print(f"Error in join_game: {e}")  # Para debug
-        import traceback
-        traceback.print_exc()  # ← AGREGAR esto para ver el error completo
         raise HTTPException(status_code=500, detail="server_error")
