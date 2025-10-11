@@ -201,7 +201,13 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
             ],
             "mazos": {
                 "deck": len(remaining),
-                "discard": 0
+                "discard": {
+                    "top": db.query(CardsXGame).filter(
+                CardsXGame.id_game == game.id,
+                CardsXGame.is_in == CardState.DISCARD
+            ).order_by(CardsXGame.position.asc()).first(),
+                    "count": 0
+                }
             },
             "manos": {p.id: manos[p.id] for p in players_sorted},
             "secretos": {p.id: secretos[p.id] for p in players_sorted},

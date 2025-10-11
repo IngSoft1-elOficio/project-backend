@@ -59,9 +59,19 @@ async def skip_turn(
 
     # Descartar primera carta
     discarded = hand_cards[0]
+
+    #Calcular la siguiente posición en el mazo de descarte
+    next_discard_pos = db.query(CardsXGame).filter(
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.DISCARD
+    ).count()
+
     discarded.is_in = CardState.DISCARD
+    discarded.position = next_discard_pos  #Asignar posición correcta
     discarded.player_id = None
     db.add(discarded)
+
+    print(f"🔄 Skip turn: Descartada carta {discarded.id_card} en position {next_discard_pos}")
 
     # Robar del mazo
     new_card = (
@@ -79,12 +89,6 @@ async def skip_turn(
     new_card.position = 0
     db.add(new_card)
     
-    # CHECK IF DECK IS EMPTY AFTER DRAWING
-    deck_count = db.query(CardsXGame).filter(
-        CardsXGame.id_game == game.id,
-        CardsXGame.is_in == CardState.DECK
-    ).count()
-    
     # Avanzar turno
     players = db.query(Player).filter(Player.id_room == room.id).order_by(Player.order.asc()).all()
     
@@ -96,6 +100,12 @@ async def skip_turn(
     
     db.commit()
     db.refresh(game)
+
+    # CHECK IF DECK IS EMPTY AFTER DRAWING
+    deck_count = db.query(CardsXGame).filter(
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.DECK
+    ).count()
     
     # Build game state
     game_state = {
@@ -105,10 +115,16 @@ async def skip_turn(
         "jugadores": [{"id": p.id, "name": p.name, "is_host": p.is_host, "order": p.order} for p in players],
         "mazos": {
             "deck": deck_count,
-            "discard": db.query(CardsXGame).filter(
+            "discard": {
+                "top": db.query(CardsXGame).filter(
                 CardsXGame.id_game == game.id,
                 CardsXGame.is_in == CardState.DISCARD
-            ).count(),
+            ).order_by(CardsXGame.position.asc()).first(), 
+                "count": db.query(CardsXGame).filter(
+                CardsXGame.id_game == game.id,
+                CardsXGame.is_in == CardState.DISCARD
+            ).count()
+            }
         },
         "manos": {
             p.id: [
