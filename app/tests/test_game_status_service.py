@@ -30,7 +30,8 @@ def setup_game_data(db):
     # Crear room asociada
     room = crud.create_room(db, {
         "name": "Mesa Test", 
-        "player_qty": 2,  
+        "players_min": 2,
+        "players_max": 6,  
         "status": "INGAME",
         "id_game": game.id
     })
@@ -174,7 +175,8 @@ def test_get_game_status_success(db, setup_game_data):
     # Verificar datos del game
     assert result.game.id == data["game"].id
     assert result.game.name == "Mesa Test"
-    assert result.game.player_qty == 2  
+    assert result.game.players_min == 2
+    assert result.game.players_max == 6  
     assert result.game.status == "in_game"  
     assert result.game.host_id == data["player1"].id
     
@@ -278,7 +280,8 @@ def test_get_game_status_game_not_started(db):
     game = crud.create_game(db, {})
     room = crud.create_room(db, {
         "name": "Mesa Waiting",
-        "player_qty": 4,
+        "players_min": 2,
+        "players_max": 6, 
         "status": "WAITING",  
         "id_game": game.id
     })
@@ -304,7 +307,8 @@ def test_get_game_status_user_not_in_game(db, setup_game_data):
     # Crear otro jugador en otra room
     other_room = crud.create_room(db, {
         "name": "Otra Mesa",
-        "player_qty": 2,
+        "players_min": 2,
+        "players_max": 6,
         "status": "WAITING"
     })
     other_player = crud.create_player(db, {
@@ -341,7 +345,8 @@ def test_status_mapping(db):
     game = crud.create_game(db, {})
     room = crud.create_room(db, {
         "name": "Test Status",
-        "player_qty": 2, 
+        "players_min": 2,
+        "players_max": 6, 
         "status": "INGAME",
         "id_game": game.id
     })
@@ -361,7 +366,8 @@ def test_no_host_found(db):
     game = crud.create_game(db, {})
     room = crud.create_room(db, {
         "name": "No Host",
-        "player_qty": 2,
+        "players_min": 2,
+        "players_max": 6, 
         "status": "INGAME", 
         "id_game": game.id
     })
@@ -381,7 +387,8 @@ def test_empty_deck_and_discard(db):
     game = crud.create_game(db, {})
     room = crud.create_room(db, {
         "name": "Empty",
-        "player_qty": 2,
+        "players_min": 2,
+        "players_max": 6, 
         "status": "INGAME",
         "id_game": game.id
     })

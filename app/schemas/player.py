@@ -1,9 +1,16 @@
-from pydantic import BaseModel
 from datetime import date
+from pydantic import BaseModel
 
-class PlayerCreate(BaseModel):
-    host_id: bool
-    # nombre: str 
-    # avatar: str
-    # fechaNacimiento: date
+class PlayerCreateRequest(BaseModel):
+    nombre: str
+    avatar: str
+    fechaNacimiento: str
+
+class PlayerResponse(BaseModel):
+    id: int
+    name: str
+    avatar: str
+    birthdate: date
+    is_host: bool
+    model_config = {"from_attributes": True}
     

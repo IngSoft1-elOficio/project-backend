@@ -1,200 +1,295 @@
 import httpx
 import json
 import sys
+import pytest
+from unittest.mock import Mock, patch, MagicMock
+from datetime import date, datetime
+from app.routes.join import join_game, JoinGameRequest
+from app.services.game_service import join_game_logic
+from app.db.models import Room, Player, RoomStatus
+from sqlalchemy.orm import Session
 
-# Configuration
-SERVER_URL = "http://localhost:8000"
-API_BASE = ""
+@pytest.fixture
+def mock_db():
+    """Mock database session"""
+    return Mock(spec=Session)
 
-def test_join_endpoint():
-    """Test the join game endpoint with your existing database"""
+@pytest.fixture
+def sample_room():
+    """Sample room for testing"""
+    room = Mock(spec=Room)
+    room.id = 1
+    room.name = "Test Room"
+    room.players_min = 2
+    room.players_max = 6
+    room.status = RoomStatus.WAITING
+    room.id_game = 10
+    return room
+
+@pytest.fixture
+def sample_players():
+    """Sample players for testing"""
+    host = Mock(spec=Player)
+    host.id = 1
+    host.name = "Host"
+    host.avatar_src = "/host.png"
+    host.birthdate = date(1995, 1, 1)
+    host.is_host = True
+    host.order = 1
     
-    print("🧪 Testing Join Game Endpoint (using httpx)")
-    print("=" * 50)
+    player2 = Mock(spec=Player)
+    player2.id = 2
+    player2.name = "Player2"
+    player2.avatar_src = "/player2.png"
+    player2.birthdate = date(1996, 2, 2)
+    player2.is_host = False
+    player2.order = 2
     
-    # Create httpx client
-    with httpx.Client(timeout=10.0) as client:
+    return [host, player2]
+
+class TestJoinGameLogic:
+    """Tests for join_game_logic function"""
+    
+    @patch('app.services.game_service.crud')
+    def test_join_game_success(self, mock_crud, mock_db, sample_room, sample_players):
+        """Test successful join"""
+        # Setup mocks
+        mock_crud.get_room_by_id.return_value = sample_room
+        mock_crud.list_players_by_room.side_effect = [
+            [sample_players[0]],  # First call: only host
+            sample_players         # Second call: host + new player
+        ]
+        mock_crud.create_player.return_value = sample_players[1]
         
-        # Step 1: Check if server is running
-        try:
-            response = client.get(f"{SERVER_URL}{API_BASE}/test")
-            print(f"✅ Server is running (status: {response.status_code})")
-        except httpx.RequestError:
-            print(f"❌ Cannot connect to {SERVER_URL}")
-            print("Make sure your FastAPI server is running!")
-            return False
-        
-        # Step 2: Get available rooms
-        print("\n📋 Getting available rooms...")
-        try:
-            response = client.get(f"{SERVER_URL}{API_BASE}/game_list")
-            if response.status_code != 200:
-                print(f"❌ Failed to get room list: {response.status_code}")
-                return False
-            
-            rooms = response.json()["items"]
-            if not rooms:
-                print("❌ No available rooms found!")
-                print("Create a room in your database first.")
-                return False
-            
-            print(f"✅ Found {len(rooms)} available rooms:")
-            for room in rooms:
-                print(f"   - {room['name']} (ID: {room['id']}) [{room['players_joined']}/{room['player_qty']} players]")
-            
-            # Use the first available room
-            test_room = rooms[0]
-            room_id = test_room["id"]
-            print(f"\n🎯 Using room: {test_room['name']} (ID: {room_id})")
-            
-        except Exception as e:
-            print(f"❌ Error getting rooms: {e}")
-            return False
-        
-        # Step 3: Test joining the game
-        print(f"\n🚀 Testing join game endpoint...")
-        
-        join_data = {
-            "name": "HttpxTestPlayer",
-            "avatar": "/assets/avatars/detective1.png", 
-            "birthdate": "1995-06-15",
-            "user_id": 98765
+        player_data = {
+            "name": "Player2",
+            "avatar": "/player2.png",
+            "birthdate": "1996-02-02"
         }
         
-        print(f"Sending data: {json.dumps(join_data, indent=2)}")
+        result = join_game_logic(mock_db, 1, player_data)
         
-        try:
-            response = client.post(
-                f"{SERVER_URL}{API_BASE}/game/{room_id}/join", 
-                json=join_data
-            )
-            
-            print(f"\n📤 Response Status: {response.status_code}")
-            
-            if response.status_code == 200:
-                # Success!
-                data = response.json()
-                print("✅ JOIN SUCCESSFUL!")
-                print(f"\n📋 Response Data:")
-                print(f"   Room: {data['room']['name']} (ID: {data['room']['id']})")
-                print(f"   Players in room: {len(data['players'])}")
-                print(f"   Your player ID: {data['player_id']}")
-                
-                # Show all players
-                print(f"\n👥 Players in room:")
-                for player in data["players"]:
-                    host_mark = " (HOST)" if player["is_host"] else ""
-                    print(f"   - {player['name']}{host_mark}")
-                
-                # Show socket instructions
-                socket_data = data["socket_instructions"]["data"]
-                print(f"\n🔌 Socket Instructions:")
-                print(f"   Action: {data['socket_instructions']['action']}")
-                print(f"   Game ID: {socket_data['game_id']}")
-                print(f"   Player ID: {socket_data['player_id']}")
-                print(f"   User ID: {socket_data['user_id']}")
-                
-                return True
-                
-            else:
-                # Error
-                print(f"❌ JOIN FAILED!")
-                try:
-                    error_data = response.json()
-                    print(f"   Error: {error_data.get('detail', 'Unknown error')}")
-                except:
-                    print(f"   Raw response: {response.text}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Request failed: {e}")
-            return False
+        assert result["success"] is True
+        assert result["room"] == sample_room
+        assert len(result["players"]) == 2
+        assert result["error"] is None
+        
+        # Verify crud calls
+        mock_crud.get_room_by_id.assert_called_once_with(mock_db, 1)
+        mock_crud.create_player.assert_called_once()
+    
+    @patch('app.services.game_service.crud')
+    def test_join_game_room_not_found(self, mock_crud, mock_db):
+        """Test join when room doesn't exist"""
+        mock_crud.get_room_by_id.return_value = None
+        
+        result = join_game_logic(mock_db, 999, {})
+        
+        assert result["success"] is False
+        assert result["error"] == "room_not_found"
+    
+    @patch('app.services.game_service.crud')
+    def test_join_game_room_not_waiting(self, mock_crud, mock_db, sample_room):
+        """Test join when room is not in WAITING status"""
+        sample_room.status = RoomStatus.INGAME
+        mock_crud.get_room_by_id.return_value = sample_room
+        
+        result = join_game_logic(mock_db, 1, {})
+        
+        assert result["success"] is False
+        assert result["error"] == "room_not_waiting"
+    
+    @patch('app.services.game_service.crud')
+    def test_join_game_room_full(self, mock_crud, mock_db, sample_room):
+        """Test join when room is full"""
+        # Create 6 players (max capacity)
+        full_players = []
+        for i in range(6):
+            p = Mock(spec=Player)
+            p.id = i + 1
+            p.name = f"Player{i+1}"
+            full_players.append(p)
+        
+        mock_crud.get_room_by_id.return_value = sample_room
+        mock_crud.list_players_by_room.return_value = full_players
+        
+        player_data = {
+            "name": "Player7",
+            "avatar": "/player7.png",
+            "birthdate": "1997-01-01"
+        }
+        
+        result = join_game_logic(mock_db, 1, player_data)
+        
+        assert result["success"] is False
+        assert result["error"] == "room_full"
+    
+    @patch('app.services.game_service.crud')
+    def test_join_game_invalid_birthdate(self, mock_crud, mock_db, sample_room, sample_players):
+        """Test join with invalid birthdate format"""
+        mock_crud.get_room_by_id.return_value = sample_room
+        mock_crud.list_players_by_room.return_value = [sample_players[0]]
+        
+        player_data = {
+            "name": "Player2",
+            "avatar": "/player2.png",
+            "birthdate": "invalid-date"
+        }
+        
+        result = join_game_logic(mock_db, 1, player_data)
+        
+        assert result["success"] is False
+        assert result["error"] == "invalid_birthdate_format"
+    
+    @patch('app.services.game_service.crud')
+    def test_join_game_exception_handling(self, mock_crud, mock_db):
+        """Test exception handling"""
+        mock_crud.get_room_by_id.side_effect = Exception("Database error")
+        
+        result = join_game_logic(mock_db, 1, {})
+        
+        assert result["success"] is False
+        assert result["error"] == "internal_error"
 
-def test_error_cases():
-    """Test some error cases"""
-    print(f"\n🧪 Testing Error Cases")
-    print("=" * 30)
-    
-    with httpx.Client(timeout=10.0) as client:
-        # Test 1: Nonexistent room
-        print("1. Testing nonexistent room...")
-        try:
-            response = client.post(
-                f"{SERVER_URL}{API_BASE}/game/99999/join",
-                json={
-                    "name": "Test",
-                    "avatar": "/test.png",
-                    "birthdate": "1995-01-01", 
-                    "user_id": 999
-                }
-            )
-            if response.status_code == 404:
-                print("   ✅ Correctly returned 404 for nonexistent room")
-            else:
-                print(f"   ❌ Expected 404, got {response.status_code}")
-        except Exception as e:
-            print(f"   ❌ Error: {e}")
-        
-        # Test 2: Invalid data
-        print("2. Testing invalid birthdate...")
-        try:
-            # Get a valid room first
-            rooms_response = client.get(f"{SERVER_URL}{API_BASE}/game_list")
-            if rooms_response.status_code == 200:
-                rooms = rooms_response.json()["items"]
-                if rooms:
-                    room_id = rooms[0]["id"]
-                    response = client.post(
-                        f"{SERVER_URL}{API_BASE}/game/{room_id}/join",
-                        json={
-                            "name": "Test",
-                            "avatar": "/test.png", 
-                            "birthdate": "invalid-date",
-                            "user_id": 999
-                        }
-                    )
-                    if response.status_code == 400:
-                        print("   ✅ Correctly returned 400 for invalid birthdate")
-                    else:
-                        print(f"   ❌ Expected 400, got {response.status_code}")
-                else:
-                    print("   ⏭️  Skipped - no rooms available")
-        except Exception as e:
-            print(f"   ❌ Error: {e}")
-        
-        # Test 3: Missing fields
-        print("3. Testing missing required fields...")
-        try:
-            rooms_response = client.get(f"{SERVER_URL}{API_BASE}/game_list")
-            if rooms_response.status_code == 200:
-                rooms = rooms_response.json()["items"]
-                if rooms:
-                    room_id = rooms[0]["id"]
-                    response = client.post(
-                        f"{SERVER_URL}{API_BASE}/game/{room_id}/join",
-                        json={
-                            "name": "Test"
-                            # Missing required fields
-                        }
-                    )
-                    if response.status_code == 422:
-                        print("   ✅ Correctly returned 422 for missing fields")
-                    else:
-                        print(f"   ❌ Expected 422, got {response.status_code}")
-                else:
-                    print("   ⏭️  Skipped - no rooms available")
-        except Exception as e:
-            print(f"   ❌ Error: {e}")
 
-if __name__ == "__main__":
-    print("🎮 Join Game Endpoint Tester (httpx version)")
-    print("Starting tests...\n")
+class TestJoinGameEndpoint:
+    """Tests for the join_game FastAPI endpoint"""
     
-    success = test_join_endpoint()
+    @pytest.mark.asyncio
+    @patch('app.routes.join.join_game_logic')
+    async def test_endpoint_success(self, mock_logic, mock_db, sample_room, sample_players):
+        """Test successful endpoint call"""
+        mock_logic.return_value = {
+            "success": True,
+            "room": sample_room,
+            "players": sample_players,
+            "error": None
+        }
+        
+        request = JoinGameRequest(
+            name="TestPlayer",
+            avatar="/test.png",
+            birthdate="1995-01-01"
+        )
+        
+        response = await join_game(1, request, mock_db)
+        
+        assert response.room.id == 1
+        assert response.room.name == "Test Room"
+        assert response.room.players_min == 2
+        assert response.room.players_max == 6
+        assert len(response.players) == 2
+        assert response.players[0].name == "Host"
+        assert response.players[0].is_host is True
     
-    if success:
-        test_error_cases()
-        print(f"\n🎉 Tests completed successfully!")
-    else:
-        print(f"\n💥 Main test failed - check your setup")
-        sys.exit(1)
+    @pytest.mark.asyncio
+    @patch('app.routes.join.join_game_logic')
+    async def test_endpoint_room_not_found(self, mock_logic, mock_db):
+        """Test endpoint when room not found"""
+        from fastapi import HTTPException
+        
+        mock_logic.return_value = {
+            "success": False,
+            "error": "room_not_found"
+        }
+        
+        request = JoinGameRequest(
+            name="TestPlayer",
+            avatar="/test.png",
+            birthdate="1995-01-01"
+        )
+        
+        with pytest.raises(HTTPException) as exc_info:
+            await join_game(999, request, mock_db)
+        
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail == "Room not found"
+    
+    @pytest.mark.asyncio
+    @patch('app.routes.join.join_game_logic')
+    async def test_endpoint_room_full(self, mock_logic, mock_db):
+        """Test endpoint when room is full"""
+        from fastapi import HTTPException
+        
+        mock_logic.return_value = {
+            "success": False,
+            "error": "room_full"
+        }
+        
+        request = JoinGameRequest(
+            name="TestPlayer",
+            avatar="/test.png",
+            birthdate="1995-01-01"
+        )
+        
+        with pytest.raises(HTTPException) as exc_info:
+            await join_game(1, request, mock_db)
+        
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == "Room is full"
+    
+    @pytest.mark.asyncio
+    @patch('app.routes.join.join_game_logic')
+    async def test_endpoint_room_not_waiting(self, mock_logic, mock_db):
+        """Test endpoint when room not accepting players"""
+        from fastapi import HTTPException
+        
+        mock_logic.return_value = {
+            "success": False,
+            "error": "room_not_waiting"
+        }
+        
+        request = JoinGameRequest(
+            name="TestPlayer",
+            avatar="/test.png",
+            birthdate="1995-01-01"
+        )
+        
+        with pytest.raises(HTTPException) as exc_info:
+            await join_game(1, request, mock_db)
+        
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == "Room is not accepting players"
+    
+    @pytest.mark.asyncio
+    @patch('app.routes.join.join_game_logic')
+    async def test_endpoint_generic_error(self, mock_logic, mock_db):
+        """Test endpoint with generic error"""
+        from fastapi import HTTPException
+        
+        mock_logic.return_value = {
+            "success": False,
+            "error": "some_other_error"
+        }
+        
+        request = JoinGameRequest(
+            name="TestPlayer",
+            avatar="/test.png",
+            birthdate="1995-01-01"
+        )
+        
+        with pytest.raises(HTTPException) as exc_info:
+            await join_game(1, request, mock_db)
+        
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == "some_other_error"
+    
+    @pytest.mark.asyncio
+    @patch('app.routes.join.join_game_logic')
+    async def test_endpoint_exception_handling(self, mock_logic, mock_db):
+        """Test endpoint exception handling"""
+        from fastapi import HTTPException
+        
+        mock_logic.side_effect = Exception("Unexpected error")
+        
+        request = JoinGameRequest(
+            name="TestPlayer",
+            avatar="/test.png",
+            birthdate="1995-01-01"
+        )
+        
+        with pytest.raises(HTTPException) as exc_info:
+            await join_game(1, request, mock_db)
+        
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "server_error"
