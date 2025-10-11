@@ -526,7 +526,11 @@ Esta sección define el contrato de eventos de WebSocket para el juego. El backe
 
 **connected**
 - Emisor: servidor a cliente recién conectado
-- Payload: `{ "message": "Conectado existosamente" }`
+- Payload: `{ "message": "Conectado existosamente", "user_id": number, "room_id": number, "sid": string }`
+
+**disconnected**
+- Emisor: servidor a cliente recien conectado
+- Payload: `{ "message": "Conectado existosamente", "user_id": number, "room_id": number, "sid": string }`
 
 **player_connected**
 - Emisor: servidor a todos en game_{room_id}
@@ -536,17 +540,17 @@ Esta sección define el contrato de eventos de WebSocket para el juego. El backe
 - Emisor: servidor a todos en game_{room_id}
 - Payload: `{ "user_id": number, "room_id": number, "timestamp": "ISO-8601" }`
 
+**error**
+- Emisor: servidor a cliente
+- Payload: `{ "message": string }`
+
 **game_state_public**
 - Emisor: servidor al solicitante
-- Payload: `{ "message": string }`
+- Payload: `{ "room_id": number, "status": , "game_id": number,  "turno_actual": "jugadores": , "mazos": , "game_ended": , "winners": "finish_reason": , "timestamp": }`
 
 **game_state_private**
 - Emisor: servidor a cliente
-- Payload: ``
-
-**game_state_public**
-- Emisor: servidor a todos en game_{room_id}
-- Payload: ``
+- Payload: `{ "user_id": , "mano": , "secretos": , "timestamp":  }`
 
 **detective_action_started**
 - Emisor: servidor a todos en game_{room_id}
@@ -587,12 +591,12 @@ Esta sección define el contrato de eventos de WebSocket para el juego. El backe
 
 **game_ended**
 - Emisor servidor a todos en game_{room_id}
-- Payload: `{ }`
+- Payload: `{ "user_id": , "ganaste": , "winners": , "reason": , "timestamp": }`
 
 ### Secuencia típica por endpoints
 
 **POST /game/{room_id}/join**
-- Emitir: player_joined
+- Emitir: 
 
 **POST /game/{room_id}/start**
 - Emitir: game_started, hand_updated (por jugador), secrets_updated (por jugador), deck_updated, discard_updated
