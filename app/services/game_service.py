@@ -110,7 +110,7 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
         next_order = len(current_players) + 1
         
         # Check if room is full
-        if len(current_players) >= room.player_qty:
+        if len(current_players) >= room.players_max:
             return {"success": False, "error": "room_full"}
         
         # Parse birthdate string to date object

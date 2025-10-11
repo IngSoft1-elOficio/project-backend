@@ -205,7 +205,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
                 "name": room.name,
                 "players_min": room.players_min,
                 "players_max": room.players_max,
-                "status": room.status,
+                "status": room.status.value,
                 "host_id": isHost.id,
             },
             "turn": {

@@ -34,8 +34,11 @@ class PlayerResponse(BaseModel):
 class RoomResponse(BaseModel):
     id: int
     name: str
-    player_qty: int
+    players_min: int
+    players_max: int
     status: str
+    host_id: int
+    game_id: int
     model_config = {"from_attributes": True}
 
 class JoinGameResponse(BaseModel):
@@ -63,13 +66,19 @@ async def join_game(room_id: int, request: JoinGameRequest, db: Session = Depend
         # Format response
         room_data = result["room"]
         players_data = result["players"]
+
+        # Encontrar el host
+        host = next((p for p in players_data if p.is_host), None)
         
         return JoinGameResponse(
             room=RoomResponse(
                 id=room_data.id,
                 name=room_data.name,
-                player_qty=room_data.player_qty,
-                status=room_data.status.value if hasattr(room_data.status, 'value') else room_data.status
+                players_min=room_data.players_min,
+                players_max=room_data.players_max,
+                status=room_data.status.value if hasattr(room_data.status, 'value') else room_data.status,
+                host_id=host.id if host else None,
+                game_id=room_data.id_game
             ),
             players=[
                 PlayerResponse(
