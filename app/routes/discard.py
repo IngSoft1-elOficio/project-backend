@@ -76,7 +76,7 @@ async def discard_cards(
     # Check deck count
     deck_count = db.query(CardsXGame).filter(
         CardsXGame.id_game == game.id,
-        CardsXGame.is_in == CardState.DECK
+        CardsXGame.is_in == CardState.DEC
     ).count()
     
     # turno
