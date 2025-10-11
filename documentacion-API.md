@@ -1,6 +1,6 @@
 # API: Cards on the Table - Agatha Christie
 
-> Documento vivo para Sprint 1. Mantener sincronizado con los cambios de backend y front.
+> Documento vivo para Sprint 2. Mantener sincronizado con los cambios de backend y front.
 
 ## 1. Introducción
 
@@ -536,65 +536,58 @@ Esta sección define el contrato de eventos de WebSocket para el juego. El backe
 - Emisor: servidor a todos en game_{room_id}
 - Payload: `{ "user_id": number, "room_id": number, "timestamp": "ISO-8601" }`
 
-**join_error**
+**game_state_public**
 - Emisor: servidor al solicitante
 - Payload: `{ "message": string }`
 
-**player_joined**
+**game_state_private**
+- Emisor: servidor a cliente
+- Payload: ``
+
+**game_state_public**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: lobby de partida en espera
-- Payload: `{ "player": PlayerView, "players_count": number }`
+- Payload: ``
 
-**player_left**
+**detective_action_started**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: lobby en espera
-- Payload: `{ "player_id": number, "players_count": number }`
+- Payload: `{ }`
 
-**game_started**
+**detective_target_selected**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: transición de WAITING → INGAME
-- Payload: `{ "game": GameView, "turn": TurnInfo }`
+- Payload: `{}`
 
-**game_state**
-- Emisor: servidor al solicitante o broadcast cuando corresponde
-- Uso: snapshot completo del estado de la partida cuando se requiere resincronizar
-- Payload: GameStateView
+**select_own_secret**
+- Emisor: servidor al cliente objetivo
+- Payload: `{  }`
 
-**hand_updated**
-- Emisor: servidor solo al dueño de la mano
-- Uso: actualizar mano del jugador tras acciones o inicio
-- Payload: `{ "player_id": number, "hand": HandView }`
-
-**secrets_updated**
-- Emisor: servidor solo al dueño
-- Uso: entregar/actualizar secretos
-- Payload: `{ "player_id": number, "secrets": SecretsView }`
-
-**deck_updated**
+**detective_action_complete**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: contador de mazo y descarte
-- Payload: `{ "remaining": number, "discard_count": number }`
+- Payload: `{  }`
 
-**discard_updated**
+**event_action_started**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: carta superior del descarte y contador
-- Payload: `{ "top": CardSummary | null, "count": number }`
+- Payload: `{  }`
 
-**turn_updated**
+**event_step_update**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: avanzar turno, habilitar acciones
-- Payload: `{ "current_player_id": number, "order": number[] }`
+- Payload: `{  }`
 
-**action_result**
-- Emisor: servidor al solicitante y, si aplica, al room con la parte visible
-- Uso: feedback inmediato de /discard y /skip
-- Payload (al solicitante): `{ "room_id": number, "action": ActionResult, "hand": HandView }`
-- Payload (broadcast a terceros): puede omitirse "hand" y devolver solo contadores visibles; normalmente se complementa con deck_updated y discard_updated
+**event_action_complete**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{  }`
 
-**game_finished**
+**player_must_draw**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{  }`
+
+**card_draw_simple**
 - Emisor: servidor a todos en game_{room_id}
 - Uso: fin de partida por agotamiento del mazo y carta final
-- Payload: `{ "winners": [{ "role": "murderer" | "accomplice" | "detective", "player_id": number }], "reason": "deck_exhausted_murderer_wins" | "one_player_left" | "other" }`
+- Payload: `{  }`
+
+**game_ended**
+- Emisor servidor a todos en game_{room_id}
+- Payload: `{ }`
 
 ### Secuencia típica por endpoints
 
