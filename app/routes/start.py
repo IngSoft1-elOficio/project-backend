@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 from app.db.crud import create_game
 from app.db.database import SessionLocal
 from app.db.models import Player, Room, Card, CardsXGame, CardState, CardType, RoomStatus
@@ -38,9 +37,9 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         # Validar jugadores suficientes
         players = db.query(Player).filter(Player.id_room == room.id).all()
         
-        if len(players) < room.player_qty:
-            logger.error(f"Not enough players: {len(players)}/{room.player_qty}")
-            raise HTTPException(status_code=409, detail=f"No hay suficientes jugadores ({len(players)}/{room.player_qty})")
+        if len(players) < room.players_min:
+            logger.error(f"Not enough players: {len(players)}/{room.players_min}")
+            raise HTTPException(status_code=409, detail=f"No hay suficientes jugadores ({len(players)}/{room.players_min}")
 
         # Validar host
         isHost = db.query(Player).filter(
@@ -62,7 +61,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         db.commit()
         db.refresh(room)
 
-        # Ordenar jugadores por cercanía de cumpleaños
+        # Ordenar jugadores por cercania de cumpleaños
         ref = date(1890, 9, 15)
 
         def day_of_year(d: date) -> int:
@@ -90,17 +89,18 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         db.refresh(game)
 
         # Repartir cartas
-        used_ids: typing.Set[int] = set()
+        exclude_special = ['Card Back', 'Murder Escapes', 'Secret Front']
 
         def pick_cards(card_types: typing.List[CardType], count: int, exclude_names: typing.List[str] = None) -> typing.List[Card]:
-            q = db.query(Card).filter( 
-                Card.type.in_(card_types), 
-                ~Card.id.in_(list(used_ids)),
-                ~Card.name.in_(["Card Back", "Murder Escapes", "Secret Front"] + (exclude_names or []))
-            ).order_by(func.random()).limit(count)
-            picked = q.all()
-            for c in picked:
-                used_ids.add(c.id)
+            cards = db.query(Card).filter(
+                Card.type.in_(card_types),
+                ~Card.name.in_(exclude_names or [])
+            ).all()
+            card_pool = []
+            for c in cards:
+                card_pool.extend([c] * c.qty)
+            random.shuffle(card_pool)
+            picked = card_pool[:count]
             return picked
 
         manos = {}
@@ -108,12 +108,10 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
 
         # Asignar secretos especiales segun cantidad de jugadores
         num_players = len(players_sorted)
-        secret_murderer = db.query(Card).filter(Card.name == "Secret Murderer").first()
-        used_ids.add(secret_murderer.id)
+        secret_murderer = db.query(Card).filter(Card.name == "You are the Murderer!!").first()
         secret_accomplice = None
         if num_players > 4:
-            secret_accomplice = db.query(Card).filter(Card.name == "Secret Accomplice").first()
-            used_ids.add(secret_accomplice.id)
+            secret_accomplice = db.query(Card).filter(Card.name == "You are the Accomplice!").first()
 
         # Seleccionar jugadores al azar para los secretos especiales
         player_indices = list(range(num_players))
@@ -124,8 +122,8 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
 
         # Repartir cartas a cada jugador
         for i, p in enumerate(players_sorted):
-            game_cards = pick_cards([CardType.EVENT, CardType.DEVIUOS, CardType.DETECTIVE], 5)
-            instant_cards = pick_cards([CardType.INSTANT], 1)
+            game_cards = pick_cards([CardType.EVENT, CardType.DEVIUOS, CardType.DETECTIVE], 5, exclude_special)
+            instant_cards = pick_cards([CardType.INSTANT], 1, exclude_special)
 
             player_secrets: typing.List[Card] = []
 
@@ -137,7 +135,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
             
             remaining_secrets_needed = 3 - len(player_secrets)
             if remaining_secrets_needed > 0:
-                exclude_special = ["Secret Murderer", "Secret Accomplice"]
+                exclude_special.extend(["You are the Murderer!!", "You are the Accomplice!"])
                 normal_secrets = pick_cards([CardType.SECRET], remaining_secrets_needed, exclude_special)
                 player_secrets.extend(normal_secrets)
 
@@ -165,20 +163,33 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
 
         db.commit()
 
-        # Cartas restantes al deck
-        remaining = db.query(Card).filter(
-            ~Card.id.in_(list(used_ids)),
+        # Cartas restantes al deck incluyendo todas sus copias
+        remaining_cards = db.query(Card).filter(
             Card.type != CardType.SECRET,
             Card.name != "Card Back",
             Card.name != "Murder Escapes"
-        ).order_by(func.random()).all()
+        ).all()
 
-        # Agregar "Murder Escapes" como última carta del mazo
+        deck_pool = []
+        for c in remaining_cards:
+            deck_pool.extend([c] * c.qty)
+
+        # Eliminar de deck_pool las cartas que ya estan en mano
+        for mano in manos.values():
+            for carta in mano:
+                for idx, c in enumerate(deck_pool):
+                    if c.id == carta['id']:
+                        deck_pool.pop(idx)
+                        break
+
+        random.shuffle(deck_pool)
+
+        # Agregar "Murder Escapes" como ultima carta del mazo
         murder_escapes = db.query(Card).filter(Card.name == "Murder Escapes").first()
         if murder_escapes:
-            remaining.append(murder_escapes)
+            deck_pool.append(murder_escapes)
 
-        for pos, c in enumerate(remaining, start=1):
+        for pos, c in enumerate(deck_pool, start=1):
             db.add(CardsXGame(
                 id_game=game.id,
                 id_card=c.id,
@@ -192,7 +203,8 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
             "game": {
                 "id": game.id,
                 "name": room.name,
-                "player_qty": room.player_qty,
+                "players_min": room.players_min,
+                "players_max": room.players_max,
                 "status": room.status,
                 "host_id": isHost.id,
             },
@@ -214,12 +226,12 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
                 for p in players_sorted
             ],
             "mazos": {
-                "deck": len(remaining),
+                "deck": len(deck_pool),
                 "discard": {
                     "top": db.query(CardsXGame).filter(
-                CardsXGame.id_game == game.id,
-                CardsXGame.is_in == CardState.DISCARD
-            ).order_by(CardsXGame.position.asc()).first(),
+                        CardsXGame.id_game == game.id,
+                        CardsXGame.is_in == CardState.DISCARD
+                    ).order_by(CardsXGame.position.asc()).first(),
                     "count": 0
                 }
             },
