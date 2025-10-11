@@ -6,9 +6,9 @@ from app.db.models import Player, Room, Card, CardsXGame, CardState, CardType, R
 from app.schemas.start import StartRequest
 from app.sockets.socket_service import get_websocket_service
 from datetime import date, datetime
-import typing
 import logging
 import random
+import typing
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         
         if len(players) < room.players_min:
             logger.error(f"Not enough players: {len(players)}/{room.players_min}")
-            raise HTTPException(status_code=409, detail=f"No hay suficientes jugadores ({len(players)}/{room.players_min}")
+            raise HTTPException(status_code=410, detail=f"No hay suficientes jugadores ({len(players)}/{room.players_min})")
 
         # Validar host
         isHost = db.query(Player).filter(
@@ -205,7 +205,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
                 "name": room.name,
                 "players_min": room.players_min,
                 "players_max": room.players_max,
-                "status": room.status.value,
+                "status": room.status,
                 "host_id": isHost.id,
             },
             "turn": {
@@ -229,9 +229,9 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
                 "deck": len(deck_pool),
                 "discard": {
                     "top": db.query(CardsXGame).filter(
-                        CardsXGame.id_game == game.id,
-                        CardsXGame.is_in == CardState.DISCARD
-                    ).order_by(CardsXGame.position.asc()).first(),
+                CardsXGame.id_game == game.id,
+                CardsXGame.is_in == CardState.DISCARD
+            ).order_by(CardsXGame.position.asc()).first(),
                     "count": 0
                 }
             },
@@ -254,4 +254,3 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error interno al iniciar la partida: {str(e)}")
-    
