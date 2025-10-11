@@ -37,9 +37,9 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         # Validar jugadores suficientes
         players = db.query(Player).filter(Player.id_room == room.id).all()
         
-        if len(players) < room.player_qty:
-            logger.error(f"Not enough players: {len(players)}/{room.player_qty}")
-            raise HTTPException(status_code=409, detail=f"No hay suficientes jugadores ({len(players)}/{room.player_qty})")
+        if len(players) < room.players_min:
+            logger.error(f"Not enough players: {len(players)}/{room.players_min}")
+            raise HTTPException(status_code=409, detail=f"No hay suficientes jugadores ({len(players)}/{room.players_min})")
 
         # Validar host
         isHost = db.query(Player).filter(
@@ -178,7 +178,8 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
             "game": {
                 "id": game.id,
                 "name": room.name,
-                "player_qty": room.player_qty,
+                "players_min": room.players_min,
+                "players_max": room.players_max,
                 "status": room.status.value,
                 "host_id": isHost.id,
             },

@@ -74,7 +74,8 @@ def _build_game_view(game, room, players):
     return GameView(
         id=game.id,
         name=room.name,
-        player_qty=room.player_qty,
+        players_min=room.players_min,
+        players_max=room.players_max,
         status=STATUS_MAPPING.get(room.status, room.status.lower()),
         host_id=host_player.id if host_player else 0
     )
