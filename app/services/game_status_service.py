@@ -169,9 +169,9 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         return {}
     
     # Get room
-    room = game.rooms[0] if game.rooms else None
+    room = db.query(models.Room).filter(models.Room.id_game == game_id).first()
     if not room:
-        return {}
+        raise HTTPException(status_code=404, detail="Sala no encontrada")
     
     # Get all players in room using CRUD
     players = crud.list_players_by_room(db, room.id)
