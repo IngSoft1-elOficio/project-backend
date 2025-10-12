@@ -75,7 +75,7 @@ async def one_more_step_1(
 
 
 
-# One-More: seleccionar secreto
+# One-More: second step seleccionar secreto
 @router.post("/{room_id}/event/one-more/select-secret", response_model = OneMoreSecondResponse, status_code = 200)
 async def one_more_step_2(
     room_id: int,
@@ -140,12 +140,39 @@ async def one_more_step_2(
     data={"secret_id": payload.selected_secret_id, "secret_name": secret.card.name})
 
     return {
-        "action_id" : sub_action.id,
         "allowed_players" : players_ids
     }
 
 
+# One-More: third step seleccionar secreto
+@router.post("/{room_id}/event/one-more/select-secret", response_model = OneMoreThirdResponse, status_code = 200)
+async def one_more_step_3(
+    room_id: int,
+    payload: OneMoreThirdRequest,
+    user_id: int = Header(..., alias = "HTTP_USER_ID"),
+    db: Session = Depends(get_db)
+):
 
+    #busco sala
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code = 404, detail = "room_not_found")
+    #busco partida
+    game = db.query(Game).filter(Game.id == room.id_game).first()
+    if not game :
+        raise HTTPException(status_code = 404 , detail = "game_not_found")
+
+    #validar turno
+    if game.player_turn_id != user_id:
+        raise HTTPException(status_code = 403, detail = "not_your_turn")
+
+    #validar si la accion existe y le pertenece al jugador
+    action = db.query(ActionsPerTurn).filter(ActionsPerTurn.id == payload.action_id).first()
+    if not action:
+        raise HTTPException(status_code = 404, detail = "action_not_found")
+    
+    if action.player_id != user_id:
+        raise HTTPException(status_code = 403, detail = "not_your_action")
 
 
 
