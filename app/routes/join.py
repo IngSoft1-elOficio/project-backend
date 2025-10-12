@@ -48,7 +48,8 @@ class JoinGameResponse(BaseModel):
 # Endpoint: POST /game/{room_id}/join
 @router.post("/game/{room_id}/join", response_model=JoinGameResponse)
 async def join_game(room_id: int, request: JoinGameRequest, db: Session = Depends(get_db)):
-    print(room_id, "    ---- ", request)
+    
+    print(f"🎯 POST /join received: {JoinGameRequest}")
 
     try:
         result = join_game_logic(db, room_id, request.dict())

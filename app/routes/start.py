@@ -6,6 +6,7 @@ from app.db.models import Player, Room, Card, CardsXGame, CardState, CardType, R
 from app.schemas.start import StartRequest
 from app.sockets.socket_service import get_websocket_service
 from datetime import date, datetime
+from app.services.game_status_service import build_complete_game_state
 import logging
 import random
 import typing
@@ -23,6 +24,8 @@ def get_db():
 
 @router.post("/start", status_code=201)
 async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(get_db)):
+    print(f"🎯 POST /start received: {StartRequest}")
+
     try:
             
         # Buscar sala
@@ -216,29 +219,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         }
 
         # Build game_state
-        game_state = {
-            "room_id": room_id,
-            "game_id": game.id,
-            "status": "INGAME",
-            "turno_actual": game.player_turn_id,
-            "jugadores": [
-                {"id": p.id, "name": p.name, "is_host": p.is_host, "order": p.order}
-                for p in players_sorted
-            ],
-            "mazos": {
-                "deck": len(deck_pool),
-                "discard": {
-                    "top": db.query(CardsXGame).filter(
-                CardsXGame.id_game == game.id,
-                CardsXGame.is_in == CardState.DISCARD
-            ).order_by(CardsXGame.position.asc()).first(),
-                    "count": 0
-                }
-            },
-            "manos": {p.id: manos[p.id] for p in players_sorted},
-            "secretos": {p.id: secretos[p.id] for p in players_sorted},
-            "timestamp": datetime.now().isoformat()
-        }
+        game_state = build_complete_game_state(db, game.id)
 
         # Notificar via WebSocket
         ws_service = get_websocket_service()

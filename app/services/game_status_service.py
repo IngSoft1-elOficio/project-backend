@@ -6,6 +6,7 @@ from app.schemas.game_status_schema import (
     DeckView, DiscardView, HandView, SecretsView, TurnInfo,
     STATUS_MAPPING
 )
+from typing import Dict, Any, Optional, List
 
 def get_game_status_service(db: Session, game_id: int, user_id: int) -> GameStateView:
     """Recupera el estado de la partida y valida la pertenencia del usuario."""
@@ -155,3 +156,153 @@ def _build_turn_info(game, players, user_id: int):
         order=turn_order,
         can_act=game.player_turn_id == user_id
     )
+
+def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
+    """
+    Build complete game state with public and private data
+    Returns structure compatible with notificar_estado_completo
+    """
+    
+    # Get game using CRUD
+    game = crud.get_game_by_id(db, game_id)
+    if not game:
+        return {}
+    
+    # Get room
+    room = game.rooms[0] if game.rooms else None
+    if not room:
+        return {}
+    
+    # Get all players in room using CRUD
+    players = crud.list_players_by_room(db, room.id)
+    
+    # Build public player data
+    jugadores = []
+    for player in players:
+        # Count cards by state for this player
+        hand_count = db.query(models.CardsXGame).filter(
+            models.CardsXGame.player_id == player.id,
+            models.CardsXGame.id_game == game_id,
+            models.CardsXGame.is_in == models.CardState.HAND
+        ).count()
+        
+        revealed_secrets_count = db.query(models.CardsXGame).filter(
+            models.CardsXGame.player_id == player.id,
+            models.CardsXGame.id_game == game_id,
+            models.CardsXGame.is_in == models.CardState.SECRET_SET,
+            models.CardsXGame.hidden == False  # Revealed secrets
+        ).count()
+        
+        has_detective_set = db.query(models.CardsXGame).filter(
+            models.CardsXGame.player_id == player.id,
+            models.CardsXGame.id_game == game_id,
+            models.CardsXGame.is_in == models.CardState.DETECTIVE_SET
+        ).count() > 0
+        
+        jugadores.append({
+            "player_id": player.id,
+            "name": player.name,
+            "avatar_src": player.avatar_src,
+            "order": player.order,
+            "is_host": player.is_host,
+            "hand_size": hand_count,
+            "revealed_secrets_count": revealed_secrets_count,
+            "detective_set": has_detective_set
+        })
+    
+    # Build mazos (decks) data using CRUD helpers
+    deck_count = crud.count_cards_by_state(db, game_id, models.CardState.DECK.value)
+    discard_count = crud.count_cards_by_state(db, game_id, models.CardState.DISCARD.value)
+
+    discard_top = (
+        db.query(models.CardsXGame)
+        .join(models.Card)
+        .filter(
+            models.CardsXGame.id_game == game_id,
+            models.CardsXGame.is_in == models.CardState.DISCARD
+        )
+        .order_by(models.CardsXGame.position.desc())  # highest position = topmost
+        .first()
+    )
+
+    # Get draft cards (top 3 from DRAFT state, not DECK)
+    draft_cards = db.query(models.CardsXGame).join(models.Card).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.is_in == models.CardState.DRAFT
+    ).order_by(models.CardsXGame.position).limit(3).all()
+    
+    draft = [
+        {
+            "id": c.id,  # CardsXGame.id
+            "name": c.card.name,
+            "img_src": c.card.img_src,
+            "type": c.card.type.value
+        }
+        for c in draft_cards
+    ]
+    
+    mazos = {
+        "deck": {
+            "count": deck_count,
+            "draft": draft    
+        },
+        "discard": {
+            "count": discard_count,
+            "top": discard_top.card.img_src if discard_top else ""
+        }
+    }
+    
+    # Build private states for each player
+    estados_privados = {}
+    for player in players:
+        # Get hand cards using relationship
+        hand_cards = db.query(models.CardsXGame).join(models.Card).filter(
+            models.CardsXGame.player_id == player.id,
+            models.CardsXGame.id_game == game_id,
+            models.CardsXGame.is_in == models.CardState.HAND
+        ).all()
+        
+        mano = [
+            {
+                "id": c.id,  # CardsXGame.id (instance ID)
+                "name": c.card.name,
+                "description": c.card.description,
+                "type": c.card.type.value,
+                "img_src": c.card.img_src
+            }
+            for c in hand_cards
+        ]
+        
+        # Get secrets (SECRET_SET state)
+        # Note: In your model, secrets use SECRET_SET, not SELECT
+        secret_cards = db.query(models.CardsXGame).join(models.Card).filter(
+            models.CardsXGame.player_id == player.id,
+            models.CardsXGame.id_game == game_id,
+            models.CardsXGame.is_in == models.CardState.SECRET_SET
+        ).all()
+        
+        secretos = [
+            {
+                "id": c.id,  # CardsXGame.id
+                "name": c.card.name,
+                "description": c.card.description,
+                "img_src": c.card.img_src,
+                "revealed": not c.hidden  # hidden=False means revealed
+            }
+            for c in secret_cards
+        ]
+        
+        estados_privados[player.id] = {
+            "mano": mano,
+            "secretos": secretos
+        }
+    
+    # Build complete state
+    return {
+        "game_id": game_id,
+        "status": room.status.value,
+        "turno_actual": game.player_turn_id,
+        "jugadores": jugadores,
+        "mazos": mazos,
+        "estados_privados": estados_privados
+    }
