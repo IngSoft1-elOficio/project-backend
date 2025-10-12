@@ -198,6 +198,31 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
             models.CardsXGame.id_game == game_id,
             models.CardsXGame.is_in == models.CardState.DETECTIVE_SET
         ).count() > 0
+
+        # Count total secrets (SECRET_SET)
+        total_secrets_count = db.query(models.CardsXGame).filter(
+            models.CardsXGame.player_id == player.id,
+            models.CardsXGame.id_game == game_id,
+            models.CardsXGame.is_in == models.CardState.SECRET_SET
+        ).count()
+
+        # Count revealed secrets (hidden == False)
+        revealed_secrets = db.query(models.CardsXGame).join(models.Card).filter(
+            models.CardsXGame.player_id == player.id,
+            models.CardsXGame.id_game == game_id,
+            models.CardsXGame.is_in == models.CardState.SECRET_SET,
+            models.CardsXGame.hidden == False
+        ).all()
+
+        revealed_secrets_list = [
+            {
+                "id": c.id,
+                "name": c.card.name,
+                "img_src": c.card.img_src,
+                "type": c.card.type.value
+            }
+            for c in revealed_secrets
+        ]
         
         jugadores.append({
             "player_id": player.id,
@@ -206,10 +231,12 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
             "order": player.order,
             "is_host": player.is_host,
             "hand_size": hand_count,
-            "revealed_secrets_count": revealed_secrets_count,
+            "total_secrets_count": total_secrets_count,
+            "revealed_secrets_count": len(revealed_secrets_list),
+            "revealed_secrets": revealed_secrets_list,
             "detective_set": has_detective_set
         })
-    
+
     # Build mazos (decks) data using CRUD helpers
     deck_count = crud.count_cards_by_state(db, game_id, models.CardState.DECK.value)
     discard_count = crud.count_cards_by_state(db, game_id, models.CardState.DISCARD.value)
@@ -225,12 +252,12 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         .first()
     )
 
-    # Get draft cards (top 3 from DRAFT state, not DECK)
-    draft_cards = db.query(models.CardsXGame).join(models.Card).filter(
+   # Get top 3 cards from DECK (not DRAFT)
+    get_draft = db.query(models.CardsXGame).join(models.Card).filter(
         models.CardsXGame.id_game == game_id,
-        models.CardsXGame.is_in == models.CardState.DRAFT
-    ).order_by(models.CardsXGame.position).limit(3).all()
-    
+        models.CardsXGame.is_in == models.CardState.DECK
+    ).order_by(models.CardsXGame.position.desc()).limit(3).all()
+
     draft = [
         {
             "id": c.id,  # CardsXGame.id
@@ -238,7 +265,7 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
             "img_src": c.card.img_src,
             "type": c.card.type.value
         }
-        for c in draft_cards
+        for c in get_draft
     ]
     
     mazos = {
@@ -252,6 +279,28 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         }
     }
     
+    sets = []
+
+    # Get all DETECTIVE_SET cards for this game
+    detective_set_cards = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.is_in == models.CardState.DETECTIVE_SET
+    ).all()
+
+    # Count manually by player
+    detective_counts = {}
+    for c in detective_set_cards:
+        if c.player_id is None:
+            continue
+        detective_counts[c.player_id] = detective_counts.get(c.player_id, 0) + 1
+
+    for player_id, count in detective_counts.items():
+        sets.append({
+            "owner_id": player_id,
+            "set_type": models.CardState.DETECTIVE_SET.value,
+            "count": count
+        })
+
     # Build private states for each player
     estados_privados = {}
     for player in players:
@@ -274,7 +323,6 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         ]
         
         # Get secrets (SECRET_SET state)
-        # Note: In your model, secrets use SECRET_SET, not SELECT
         secret_cards = db.query(models.CardsXGame).join(models.Card).filter(
             models.CardsXGame.player_id == player.id,
             models.CardsXGame.id_game == game_id,
@@ -304,5 +352,6 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         "turno_actual": game.player_turn_id,
         "jugadores": jugadores,
         "mazos": mazos,
+        "sets": sets, 
         "estados_privados": estados_privados
     }
