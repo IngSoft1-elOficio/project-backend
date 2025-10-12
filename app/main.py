@@ -54,6 +54,9 @@ from app.routes import skip_turn
 app.include_router(skip_turn.router)
 from app.routes import take_deck
 app.include_router(take_deck.router)
+from app.routes import event
+app.include_router(event.router)
+
 
 # Aplicación ASGI con Socket.IO
 socket_app = socketio.ASGIApp(sio, app)

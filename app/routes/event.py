@@ -4,7 +4,7 @@ from app.db.database import SessionLocal
 from pydantic import BaseModel
 from app.db.models import Game, Room, CardsXGame, CardState, Player, RoomStatus, Card, ActionsPerTurn
 from app.sockets.socket_service import get_websocket_service
-from app.schemas.event_schema import OneMoreStartRequest, OneMoreStartResponse
+from app.schemas.event_schema import OneMoreStartRequest, OneMoreStartResponse, OneMoreSecondRequest, OneMoreSecondResponse
 from datetime import datetime
 
 router = APIRouter(prefix="/api/game", tags=["Events"])
@@ -19,7 +19,7 @@ def get_db():
 
 # One-More: Permite elegir un secreto revelado y añadirlo oculto en el set de secretos de cualquier jugador
 @router.post("/{room_id}/event/one-more", response_model = OneMoreStartResponse, status_code = 200)
-async def one_more(
+async def one_more_step_1(
     room_id: int,
     payload: OneMoreStartRequest,
     user_id: int = Header(..., alias = "HTTP_USER_ID"),
@@ -39,7 +39,7 @@ async def one_more(
     if game.player_turn_id != user_id:
         raise HTTPException(status_code = 403, detail = "not_your_turn")
 
-            # Crear registro en actions_per_turn
+    # Crear registro en actions_per_turn
     action = ActionsPerTurn(
         id_game = game.id,
         actionName = "and_then_one_more",
@@ -75,12 +75,74 @@ async def one_more(
 
 
 
+# One-More: seleccionar secreto
+@router.post("/{room_id}/event/one-more/select-secret", response_model = OneMoreSecondResponse, status_code = 200)
+async def one_more_step_2(
+    room_id: int,
+    payload: OneMoreSecondRequest,
+    user_id: int = Header(..., alias = "HTTP_USER_ID"),
+    db: Session = Depends(get_db)
+):
+
+    #busco sala
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code = 404, detail = "room_not_found")
+    #busco partida
+    game = db.query(Game).filter(Game.id == room.id_game).first()
+    if not game :
+        raise HTTPException(status_code = 404 , detail = "game_not_found")
+
+    #validar turno
+    if game.player_turn_id != user_id:
+        raise HTTPException(status_code = 403, detail = "not_your_turn")
+
+    #validar si la accion existe y le pertenece al jugador
+    action = db.query(ActionsPerTurn).filter(ActionsPerTurn.id == payload.action_id).first()
+    if not action:
+        raise HTTPException(status_code = 404, detail = "action_not_found")
+    
+    if action.player_id != user_id:
+        raise HTTPException(status_code = 403, detail = "not_your_action")
+
+    #chequear si el secreto existe
+    secret = db.query(CardsXGame).filter(CardsXGame.id == payload.selected_secret_id, CardsXGame.id_game == game.id,
+                                         CardsXGame.is_in == CardState.SECRET_SET,CardsXGame.hidden == False).first()
+
+    if not secret:
+        raise HTTPException(status_code=404, detail="secret_not_found")
 
 
+    # Crear subacción
+    sub_action = ActionsPerTurn(
+        id_game = game.id,
+        actionName = "and_then_one_more_select_secret",
+        player_id = user_id,              
+        parent_action_id = payload.action_id,       
+        secret_target = payload.selected_secret_id   
+    )
 
+    db.add(sub_action)
+    db.commit()
+    db.refresh(sub_action)
 
+    #guardo los jugadores a los q puedo agregar el secreto
+    players = db.query(Player).filter(Player.id_room == room_id).all()
+    players_ids = [p.id for p in players]
 
+    ws_service = get_websocket_service()
+    await ws_service.notificar_event_step_update(       
+    room_id = room_id,        
+    player_id= user_id,        
+    event_type="one_more",        
+    step="secret_selected",        
+    message=f"Player {user_id} selected '{secret.card.name}'",        
+    data={"secret_id": payload.selected_secret_id, "secret_name": secret.card.name})
 
+    return {
+        "action_id" : sub_action.id,
+        "allowed_players" : players_ids
+    }
 
 
 
