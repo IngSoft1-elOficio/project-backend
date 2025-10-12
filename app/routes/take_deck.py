@@ -85,12 +85,18 @@ async def take_from_deck(
     
     game_state = game_state = build_complete_game_state(db, game.id)
 
-
     ws_service = get_websocket_service()
     await ws_service.notificar_estado_partida(
         room_id=room_id,
         jugador_que_actuo=user_id,
         game_state=game_state
+    )
+
+    await ws_service.notificar_card_drawn_simple(
+        room_id=room_id,
+        player_id=user_id,
+        drawn_from="deck",  # "deck" or "draft"
+        cards_remaining= 6 - len(hand)
     )
     
     return response

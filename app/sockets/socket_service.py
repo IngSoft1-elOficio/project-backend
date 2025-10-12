@@ -400,6 +400,8 @@ class WebSocketService:
         }
         await self.ws_manager.emit_to_room(room_id, "player_must_draw", mensaje)
         logger.info(f"✅ Emitted player_must_draw to room {room_id}")
+        print(f"✅ Emitted player_must_draw to room {room_id}")
+
 
     async def notificar_card_drawn_simple(
         self,

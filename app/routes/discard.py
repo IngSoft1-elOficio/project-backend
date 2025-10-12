@@ -146,6 +146,12 @@ async def discard_cards(
             jugador_que_actuo=user_id,
             game_state=game_state
         )
+
+        await ws_service.notificar_player_must_draw(
+            room_id=room_id,
+            player_id=user_id,
+            cards_to_draw=len(discarded)
+        )
     
     # Verificar todo el mazo de descarte
     all_discarded = db.query(CardsXGame).filter(

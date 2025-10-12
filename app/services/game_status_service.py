@@ -341,6 +341,7 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         ]
         
         estados_privados[player.id] = {
+            "user_id": player.id,
             "mano": mano,
             "secretos": secretos
         }

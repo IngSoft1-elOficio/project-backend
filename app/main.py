@@ -40,8 +40,8 @@ from app.sockets.socket_events import register_events
 register_events(sio)
 
 # Incluir rutas de la API
-from app.routes import api
-app.include_router(api.router)
+from app.routes import get_list
+app.include_router(get_list.router)
 from app.routes import game
 app.include_router(game.router)
 from app.routes import start
