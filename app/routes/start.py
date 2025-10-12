@@ -1,14 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-from app.db.database import SessionLocal
-from app.schemas.start import StartRequest
-from app.db.models import Player, Room, Game, Card, CardsXGame, CardState, CardType, RoomStatus
 from app.db.crud import create_game
+from app.db.database import SessionLocal
+from app.db.models import Player, Room, Card, CardsXGame, CardState, CardType, RoomStatus
+from app.schemas.start import StartRequest
 from app.sockets.socket_service import get_websocket_service
 from datetime import date, datetime
-import typing
 import logging
+import random
+import typing
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         
         if len(players) < room.players_min:
             logger.error(f"Not enough players: {len(players)}/{room.players_min}")
-            raise HTTPException(status_code=409, detail=f"No hay suficientes jugadores ({len(players)}/{room.players_min})")
+            raise HTTPException(status_code=410, detail=f"No hay suficientes jugadores ({len(players)}/{room.players_min})")
 
         # Validar host
         isHost = db.query(Player).filter(
@@ -61,7 +61,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         db.commit()
         db.refresh(room)
 
-        # Ordenar jugadores por cercanía de cumpleaños
+        # Ordenar jugadores por cercania de cumpleaños
         ref = date(1890, 9, 15)
 
         def day_of_year(d: date) -> int:
@@ -89,82 +89,107 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         db.refresh(game)
 
         # Repartir cartas
-        used_ids: typing.Set[int] = set()
+        exclude_special = ['Card Back', 'Murder Escapes', 'Secret Front']
 
-        def pick_cards(card_types: typing.List[CardType], count: int) -> typing.List[Card]:
-            q = db.query(Card).filter(
+        def pick_cards(card_types: typing.List[CardType], count: int, exclude_names: typing.List[str] = None) -> typing.List[Card]:
+            cards = db.query(Card).filter(
                 Card.type.in_(card_types),
-                ~Card.id.in_(list(used_ids))
-            ).order_by(func.random()).limit(count)
-            picked = q.all()
-            if len(picked) < count:
-                more = db.query(Card).filter(
-                    ~Card.id.in_(list(used_ids))
-                ).order_by(func.random()).limit(count - len(picked)).all()
-                picked += more
-            for c in picked:
-                used_ids.add(c.id)
+                ~Card.name.in_(exclude_names or [])
+            ).all()
+            card_pool = []
+            for c in cards:
+                card_pool.extend([c] * c.qty)
+            random.shuffle(card_pool)
+            picked = card_pool[:count]
             return picked
 
         manos = {}
         secretos = {}
 
-        for p in players_sorted:
-            game_cards = pick_cards([CardType.EVENT, CardType.DEVIUOS, CardType.DETECTIVE], 5)
-            secret_cards = pick_cards([CardType.SECRET], 3)
+        # Asignar secretos especiales segun cantidad de jugadores
+        num_players = len(players_sorted)
+        secret_murderer = db.query(Card).filter(Card.name == "You are the Murderer!!").first()
+        secret_accomplice = None
+        if num_players > 4:
+            secret_accomplice = db.query(Card).filter(Card.name == "You are the Accomplice!").first()
 
-            # Evitar que asesino y cómplice estén en la misma mano
-            special_names = {"You're the murderer", "You're the accomplice"}
-            secret_names = {c.name for c in secret_cards}
-            if special_names.issubset(secret_names):
-                for c in list(secret_cards):
-                    if c.name in special_names:
-                        replacement = db.query(Card).filter(
-                            Card.type == CardType.SECRET,
-                            ~Card.id.in_(list(used_ids)),
-                            ~Card.name.in_(list(special_names))
-                        ).order_by(func.random()).first()
-                        if replacement:
-                            used_ids.discard(c.id)
-                            try:
-                                secret_cards.remove(c)
-                            except ValueError:
-                                pass
-                            secret_cards.append(replacement)
-                            used_ids.add(replacement.id)
-                            break
+        # Seleccionar jugadores al azar para los secretos especiales
+        player_indices = list(range(num_players))
+        random.shuffle(player_indices)
+        
+        murderer_player_index = player_indices[0]
+        accomplice_player_index = player_indices[1] if num_players > 4 else None
 
-            instant_cards = pick_cards([CardType.INSTANT], 1)
+        # Repartir cartas a cada jugador
+        for i, p in enumerate(players_sorted):
+            game_cards = pick_cards([CardType.EVENT, CardType.DEVIUOS, CardType.DETECTIVE], 5, exclude_special)
+            instant_cards = pick_cards([CardType.INSTANT], 1, exclude_special)
+
+            player_secrets: typing.List[Card] = []
+
+            if i == murderer_player_index and secret_murderer:
+                player_secrets.append(secret_murderer)
+            
+            if i == accomplice_player_index and secret_accomplice and num_players > 4:
+                player_secrets.append(secret_accomplice)
+            
+            remaining_secrets_needed = 3 - len(player_secrets)
+            if remaining_secrets_needed > 0:
+                exclude_special.extend(["You are the Murderer!!", "You are the Accomplice!"])
+                normal_secrets = pick_cards([CardType.SECRET], remaining_secrets_needed, exclude_special)
+                player_secrets.extend(normal_secrets)
 
             # Guardar manos y secretos
-            manos[p.id] = [{"id": c.id, "name": c.name, "type": c.type.value} for c in game_cards + instant_cards]
-            secretos[p.id] = [{"id": c.id, "name": c.name, "type": c.type.value} for c in secret_cards]
+            manos[p.id] = [{"id": c.id, "name": c.name, "type": c.type} for c in game_cards + instant_cards]
+            secretos[p.id] = [{"id": c.id, "name": c.name, "type": c.type} for c in player_secrets]
 
             # Persistir en DB
-            for c in game_cards + instant_cards:
+            for pos, c in enumerate(game_cards + instant_cards, start=1):
                 db.add(CardsXGame(
                     id_game=game.id,
                     id_card=c.id,
                     is_in=CardState.HAND,
-                    position=0,
+                    position=pos,
                     player_id=p.id
                 ))
-            for c in secret_cards:
+            for pos, c in enumerate(player_secrets, start=1):
                 db.add(CardsXGame(
                     id_game=game.id,
                     id_card=c.id,
                     is_in=CardState.SECRET_SET,
-                    position=0,
+                    position=pos,
                     player_id=p.id
                 ))
 
         db.commit()
 
+        # Cartas restantes al deck incluyendo todas sus copias
+        remaining_cards = db.query(Card).filter(
+            Card.type != CardType.SECRET,
+            Card.name != "Card Back",
+            Card.name != "Murder Escapes"
+        ).all()
 
-        # Cartas restantes al deck
-        remaining = db.query(Card).filter(~Card.id.in_(list(used_ids))).order_by(func.random()).all()
+        deck_pool = []
+        for c in remaining_cards:
+            deck_pool.extend([c] * c.qty)
 
-        for pos, c in enumerate(remaining, start=1):
+        # Eliminar de deck_pool las cartas que ya estan en mano
+        for mano in manos.values():
+            for carta in mano:
+                for idx, c in enumerate(deck_pool):
+                    if c.id == carta['id']:
+                        deck_pool.pop(idx)
+                        break
+
+        random.shuffle(deck_pool)
+
+        # Agregar "Murder Escapes" como ultima carta del mazo
+        murder_escapes = db.query(Card).filter(Card.name == "Murder Escapes").first()
+        if murder_escapes:
+            deck_pool.append(murder_escapes)
+
+        for pos, c in enumerate(deck_pool, start=1):
             db.add(CardsXGame(
                 id_game=game.id,
                 id_card=c.id,
@@ -180,7 +205,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
                 "name": room.name,
                 "players_min": room.players_min,
                 "players_max": room.players_max,
-                "status": room.status.value,
+                "status": room.status,
                 "host_id": isHost.id,
             },
             "turn": {
@@ -201,7 +226,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
                 for p in players_sorted
             ],
             "mazos": {
-                "deck": len(remaining),
+                "deck": len(deck_pool),
                 "discard": {
                     "top": db.query(CardsXGame).filter(
                 CardsXGame.id_game == game.id,
@@ -215,7 +240,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
             "timestamp": datetime.now().isoformat()
         }
 
-        # Notify via WebSocket
+        # Notificar via WebSocket
         ws_service = get_websocket_service()
         try:
             await ws_service.notificar_estado_partida(room_id=room_id, game_state=game_state)
