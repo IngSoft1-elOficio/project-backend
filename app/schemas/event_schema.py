@@ -16,5 +16,4 @@ class OneMoreSecondRequest(BaseModel):
     selected_secret_id: int
 
 class OneMoreSecondResponse(BaseModel):
-    action_id: int
     allowed_players: list[int]
