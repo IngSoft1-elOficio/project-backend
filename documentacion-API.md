@@ -212,7 +212,8 @@ Para desacoplar la forma de persistencia del contrato público, las respuestas d
     "game": {
         "id": 42,
         "name": "Mesa 1",
-        "player_qty": 4,
+        "players_min": 2,
+        "players_max": 6,
         "status": "waiting",
         "host_id": 7
     },
@@ -276,7 +277,7 @@ curl -s "http://localhost:8000/game_state/42"
 **Ejemplo 200**
 ```json
 {
-    "game": {"id": 42, "name": "Mesa 1", "player_qty": 4, "status": "in_game", "host_id": 7},
+    "game": {"id": 42, "name": "Mesa 1", "players_min": 4, "players_max": 6 , "status": "in_game", "host_id": 7},
     "players": [{"id": 7, "name": "Ana", "avatar": "/assets/avatars/detective1.png", "birthdate": "2000-05-10", "is_host": true, "order": 1}],
     "deck": {"remaining": 37},
     "discard": {"top": {"id": 101, "name": "Not So Fast", "type": "INSTANT"}, "count": 15},
@@ -306,7 +307,8 @@ curl -s "http://localhost:8000/game_state/42"
 ```json
 {
     "name": "Mesa 1",
-    "player_qty": 4,
+    "players_min": 2,
+    "players_max": 4,
     "player": {
     "name": "Ana",
     "avatar": "/assets/avatars/detective1.png",
@@ -319,7 +321,7 @@ curl -s "http://localhost:8000/game_state/42"
 **201 Created**
 ```json
 {
-    "room": { "id": 42, "name": "Mesa 1", "player_qty": 4, "status": "waiting", "host_id": 7 },
+    "room": { "id": 42, "name": "Mesa 1", "players_min": 2, "players_max": 4, "status": "waiting", "host_id": 7 },
     "players": [
         { "id": 7, "name": "Ana", "avatar": "/assets/avatars/detective1.png", "birthdate": "2000-05-10", "is_host": true }
     ]
@@ -335,13 +337,14 @@ curl -s -X POST "http://localhost:8000/game" \
     -H "Content-Type: application/json" \
     -d '{
     "name":"Mesa 1",
-    "player_qty":4,
+    "players_min": 2, 
+    "players_max": 4,
     "player":{"name":"Ana","avatar":"/assets/avatars/detective1.png","birthdate":"2000-05-10"}
     }' | jq .
 ```
 
 **Errores por endpoint**
-- 400 validation_error: name vacío o longitud inválida, player_qty fuera de 2–6, player incompleto
+- 400 validation_error: name vacío o longitud inválida, players_min/players_max inválidos (min: 2, max: 6), player incompleto
 - 409 conflict: name_duplicated
 - 500 server_error: error inesperado
 
@@ -359,8 +362,8 @@ curl -s -X POST "http://localhost:8000/game" \
 ```json
 {
     "items": [
-        { "id": 42, "name": "Mesa 1", "player_qty": 4, "players_joined": 1 },
-        { "id": 41, "name": "Mesa 0", "player_qty": 2, "players_joined": 1 }
+        { "id": 42, "name": "Mesa 1", "players_min": 2, "players_max": 4, "players_joined": 1 },
+        { "id": 41, "name": "Mesa 0", "players_min": 2, "players_max": 2, "players_joined": 1 }
         ],
     "page": 1,
     "limit": 20
@@ -398,7 +401,7 @@ curl -s "http://localhost:8000/api/game_list?page=1&limit=10"
 **200 OK**
 ```json
 {
-    "room": { "id": 42, "name": "Mesa 1", "player_qty": 4, "status": "waiting" },
+    "room": { "id": 42, "name": "Mesa 1", "players_min": 2, "players_max": 4, "status": "waiting" },
     "players": [
         { "id": 7, "name": "Ana", "avatar": "/assets/avatars/detective1.png", "birthdate": "2000-05-10", "is_host": true },
         { "id": 9, "name": "Luis", "avatar": "/assets/avatars/detective2.png", "birthdate": "1999-03-01", "is_host": false }
@@ -456,7 +459,7 @@ curl -s -X POST "http://localhost:8000/game/42/join" \
 **Ejemplo 200**
 ```json
 {
-    "game": {"id": 101, "name": "Mesa 1", "player_qty": 4, "status": "in_game", "host_id": 7},
+    "game": {"id": 101, "name": "Mesa 1", "players_min": 2, "players_max": 4, "status": "in_game", "host_id": 7},
     "players": [
         {"id": 7, "name": "Ana", "avatar": "/assets/avatars/detective1.png", "birthdate": "2000-05-10", "is_host": true},
         {"id": 9, "name": "Luis", "avatar": "/assets/avatars/detective2.png", "birthdate": "1999-03-01", "is_host": false},
@@ -491,9 +494,14 @@ curl -s -X POST "http://localhost:8000/game/42/start"
 **Path params**: 
 - room_id: integer
 
+**Headers**:
+- HTTP_USER_ID: integer (ID del jugador que realiza la acción)
+
 **Body**
 ```json
-{ "card_ids": [1, 2, 3] }
+{
+    "card_ids": [1, 2, 3]  // Array de IDs de cartas a descartar
+}
 ```
 
 **Responses**
@@ -502,12 +510,46 @@ curl -s -X POST "http://localhost:8000/game/42/start"
 ```json
 {
     "action": {
-        "discarded": [ {"id": 12, "name": "Cards off the table", "type": "EVENT"} ],
-        "drawn": [ {"id": 31, "name": "Another victim", "type": "ACTION"} ]
+        "discarded": [
+            {
+                "id": 12,
+                "name": "Cards off the table",
+                "type": "EVENT",
+                "img": "/cards/cards-off-table.png"
+            }
+        ],
+        "drawn": [
+            {
+                "id": 31,
+                "name": "Another victim",
+                "type": "EVENT",
+                "img": "/cards/another-victim.png"
+            }
+        ]
     },
-    "hand": { "player_id": 7, "cards": [ {"id": 44, "name": "...", "type": "..."} ], ... },
-    "deck": { "remaining": 36 },
-    "discard": { "top": {"id": 12, "name": "Cards off the table", "type": "EVENT"}, "count": 16 }
+    "hand": {
+        "player_id": 7,
+        "cards": [
+            {
+                "id": 44,
+                "name": "Not so fast",
+                "type": "INSTANT",
+                "img": "/cards/not-so-fast.png"
+            }
+        ]
+    },
+    "deck": {
+        "remaining": 36
+    },
+    "discard": {
+        "top": {
+            "id": 12,
+            "name": "Cards off the table",
+            "type": "EVENT",
+            "img": "/cards/cards-off-table.png"
+        },
+        "count": 16
+    }
 }
 ```
 
@@ -524,45 +566,52 @@ curl -s -X POST "http://localhost:8000/game/42/discard" \
 -d '{"card_ids":[12,31]}' | jq .
 ```
 
-### 4.7 POST /game/{room_id}/skip
+### 4.7 POST /game/{room_id}/finish-turn
 
-**Descripción**: finalizar turno descartando exactamente 1 carta según regla definida y reponer desde el mazo regular.
+**Descripción**: Finaliza el turno del jugador actual y pasa al siguiente jugador en orden.
 
 **Path params**: 
 - room_id: integer
 
-**Body (opcional)**
+**Body**
 ```json
-{ "rule": "auto" }
+{
+    "user_id": 7  // ID del jugador que finaliza su turno
+}
 ```
+
+**Comportamiento**
+- Valida que sea el turno del jugador solicitante
+- Calcula el siguiente jugador según el orden establecido
+- Actualiza player_turn_id en la partida
+- Emite eventos WebSocket:
+  - Notifica el estado actualizado de la partida
+  - Notifica que el turno ha finalizado
 
 **Responses**
 
 **200 OK**
-
 ```json
 {
-    "action": {
-        "discarded": [ {"id": 55, "name": "...", "type": "..."} ],
-        "drawn": [ {"id": 78, "name": "...", "type": "..."} ]
-    },
-    "hand": { "player_id": 7, "cards": [ {"id": 44, "name": "...", "type": "..."}, ... ] },
-    "deck": { "remaining": 35 },
-    "discard": { "top": {"id": 55, "name": "...", "type": "..."}, "count": 17 }
+    "status": "ok",
+    "next_turn": 8  // ID del siguiente jugador
 }
 ```
 
-- 400 validation_error (si hubiera body inválido)
-- 403 forbidden (no es tu turno)
-- 404 not_found (room)
-- 409 conflict (no se puede aplicar la regla de descarte obligatorio)
+**Errores por endpoint**
+- 403 forbidden: no es tu turno (not_your_turn)
+- 404 not_found: room_not_found, game_not_found
+- 500 server_error: error inesperado
+
+**Eventos WebSocket emitidos**
+- notificar_estado_partida: Actualiza el estado completo de la partida
+- notificar_turn_finished: Indica que el turno del jugador ha terminado
 
 **Ejemplo curl**
-
 ```bash
-curl -s -X POST "http://localhost:8000/game/42/skip" \
+curl -s -X POST "http://localhost:8000/game/42/finish-turn" \
 -H "Content-Type: application/json" \
--d '{"rule":"auto"}' | jq .
+-d '{"user_id": 7}' | jq .
 ```
 
 ### 4.8 POST /game/{room_id}/draft/pick
@@ -581,11 +630,11 @@ curl -s -X POST "http://localhost:8000/game/42/skip" \
 ```
 
 **Comportamiento**
-- La carta elegida pasa a HAND del jugador con una position válida (1-6)
+- La carta elegida pasa a HAND del jugador ocupando la posición que quedó vacía por la última carta descartada
 - Se repone el mazo de draft desde el DECK si hay cartas disponibles
 - Si el DECK queda con 1 carta, se activa el final del juego
 - Se emiten eventos WebSocket:
-  - hand_updated al jugador
+  - hand_updated al jugador con la nueva carta en la posición correcta
   - deck_updated y draft_updated al room
 
 **Responses**
@@ -818,8 +867,12 @@ curl -s -X POST "http://localhost:8000/api/game/42/detective-action" \
 
 **Comportamiento**
 - Verifica si el jugador objetivo tiene cartas NSF en su mano (is_in = 'HAND')
-- Mueve todas las cartas NSF al mazo de descarte
-- Actualiza las posiciones en la mano del jugador y el mazo de descarte
+- Descarta la carta de evento "Cards off the table" usada
+- Mueve todas las cartas NSF del jugador objetivo al mazo de descarte
+- Repone cartas del mazo:
+  - Al jugador que usó la carta de evento (1 carta)
+  - Al jugador objetivo (tantas cartas como NSF descartó)
+- Actualiza las posiciones en las manos de ambos jugadores y el mazo de descarte
 - Emite eventos WebSocket para notificar los cambios
 
 **Responses**
@@ -828,7 +881,12 @@ curl -s -X POST "http://localhost:8000/api/game/42/detective-action" \
 ```json
 {
     "success": true,
-    "discardedCards": [
+    "eventCardDiscarded": {
+        "cardId": 25,
+        "name": "Cards off the table",
+        "type": "EVENT"
+    },
+    "discardedNSFCards": [
         {
             "cardId": 14,
             "previousPosition": 2,
@@ -842,9 +900,29 @@ curl -s -X POST "http://localhost:8000/api/game/42/detective-action" \
             "type": "INSTANT"
         }
     ],
-    "hand": {
+    "sourcePlayerHand": {
+        "player_id": "source_id",
+        "drawnCard": {
+            "cardId": 30,
+            "position": 3,
+            "type": "DETECTIVE"
+        }
+    },
+    "targetPlayerHand": {
         "player_id": "target_id",
-        "emptyPositions": [2, 5],
+        "discardedPositions": [2, 5],
+        "drawnCards": [
+            {
+                "cardId": 31,
+                "position": 2,
+                "type": "EVENT"
+            },
+            {
+                "cardId": 32,
+                "position": 5,
+                "type": "DETECTIVE"
+            }
+        ],
         "remainingCards": [
             {
                 "cardId": 5,
@@ -870,7 +948,10 @@ curl -s -X POST "http://localhost:8000/api/game/42/detective-action" \
     },
     "discard": {
         "top": {"id": 14, "name": "Not so fast", "type": "INSTANT"},
-        "count": 5
+        "count": 6
+    },
+    "deck": {
+        "remaining": 33
     }
 }
 ```
