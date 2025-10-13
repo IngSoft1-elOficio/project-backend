@@ -37,7 +37,8 @@ class PlayerView(BaseModel):
 class GameView(BaseModel):
     id: int
     name: str
-    player_qty: int
+    players_min: int
+    players_max: int
     status: str  # "waiting" | "in_game" | "finished" 
     host_id: int
 
@@ -48,7 +49,8 @@ class GameView(BaseModel):
 # ================================
 
 class DeckView(BaseModel):
-    remaining: int  
+    remaining: int
+    draft: List[CardSummary] = []
 
 class DiscardView(BaseModel):
     top: Optional[CardSummary] = None  

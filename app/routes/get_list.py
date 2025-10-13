@@ -21,7 +21,8 @@ def get_db():
 class GameItem(BaseModel):
     id: int
     name: str
-    player_qty: int
+    players_min: int
+    players_max: int
     players_joined: int
     host_id: int | None
 
@@ -55,11 +56,12 @@ def get_game_list(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=10
             host = next((p for p in players if p.is_host), None)
 
             # Include rooms with available slots
-            if players_joined < room.player_qty:
+            if players_joined < room.players_max:
                 available.append({
                     "id": room.id,
                     "name": room.name,
-                    "player_qty": room.player_qty,
+                    "players_min": room.players_min,
+                    "players_max": room.players_max,
                     "players_joined": players_joined,
                     "host_id": host.id if host else None
                 })
