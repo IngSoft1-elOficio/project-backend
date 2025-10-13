@@ -53,18 +53,17 @@ async def procesar_ultima_carta(game_id: int, room_id: int, carta: str, game_sta
     
     deck_remaining = game_state.get("mazos", {}).get("deck", 0)
 
-    if deck_remaining == 0:
+    if deck_remaining == 1:
         logger.info(f"Fin de mazo alcanzado en game_id {game_id}")
         winners: List[Dict] = []
 
-        if carta == "Murder Escapes":
-            # Find murderer and accomplice from secretos
-            for player_id, secrets in game_state.get("secretos", {}).items():
-                for secret in secrets:
-                    if secret["name"] == "Secret Murderer":
-                        winners.append({"role": "murderer", "player_id": player_id})
-                    elif secret["name"] == "Secret Accomplice":
-                        winners.append({"role": "accomplice", "player_id": player_id})
+        # Find murderer and accomplice from secretos
+        for player_id, secrets in game_state.get("secretos", {}).items():
+            for secret in secrets:
+                if secret["name"] == "Secret Murderer":
+                    winners.append({"role": "murderer", "player_id": player_id})
+                elif secret["name"] == "Secret Accomplice":
+                    winners.append({"role": "accomplice", "player_id": player_id})
 
         # Update game state to finished
         game_state["status"] = "FINISH"

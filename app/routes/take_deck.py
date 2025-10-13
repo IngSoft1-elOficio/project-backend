@@ -70,6 +70,17 @@ async def take_from_deck(
         CardsXGame.id_game == game.id,
         CardsXGame.is_in == CardState.DECK
     ).count()
+
+    ws_service = get_websocket_service()
+
+    if deck_remaining == 1:
+      await ws_service.notificar_fin_partida(
+        room_id=room_id ,
+        winners= [],
+        reason= "game_finished"
+      )
+
+      print(f"✅ deck con una carta ")
     
     print(f"✅ Robadas {len(drawn)} carta(s). Quedan {deck_remaining} en el mazo")
     
@@ -85,7 +96,6 @@ async def take_from_deck(
     
     game_state = game_state = build_complete_game_state(db, game.id)
 
-    ws_service = get_websocket_service()
     await ws_service.notificar_estado_partida(
         room_id=room_id,
         jugador_que_actuo=user_id,
