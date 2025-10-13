@@ -33,28 +33,28 @@ def register_events(sio: socketio.AsyncServer):
             user_id_list = query_params.get('user_id', [])
             if not user_id_list:
                 logger.error(f"❌ Missing user_id in query for sid: {sid}")
-                await sio.emit('error', {'message': 'user_id required'}, room=sid)
+                await sio.emit('connect_error', {'message': 'user_id required'}, room=sid)
                 return False
                 
             try:
                 user_id = int(user_id_list[0])
             except (ValueError, IndexError):
                 logger.error(f"❌ Invalid user_id format: {user_id_list}")
-                await sio.emit('error', {'message': 'invalid user_id format'}, room=sid)
+                await sio.emit('connect_error', {'message': 'invalid user_id format'}, room=sid)
                 return False
             
             # Get room_id from query params
             room_id_list = query_params.get('room_id', [])
             if not room_id_list:
                 logger.error(f"❌ Missing room_id in query for sid: {sid}")
-                await sio.emit('error', {'message': 'room_id required'}, room=sid)
+                await sio.emit('connect_error', {'message': 'room_id required'}, room=sid)
                 return False
                 
             try:
                 room_id = int(room_id_list[0])
             except (ValueError, IndexError):
                 logger.error(f"❌ Invalid room_id format: {room_id_list}")
-                await sio.emit('error', {'message': 'invalid room_id format'}, room=sid)
+                await sio.emit('connect_error', {'message': 'invalid room_id format'}, room=sid)
                 return False
             
             logger.info(f"Extracted - SID: {sid}, Game ID: {room_id}, User ID: {user_id}")
@@ -64,7 +64,7 @@ def register_events(sio: socketio.AsyncServer):
             try:
                 room = db.query(Room).filter(Room.id == room_id).first()
                 if not room:
-                    await sio.emit('error', {'message': 'room not found'}, room=sid)
+                    await sio.emit('connect_error', {'message': 'room not found'}, room=sid)
                     return False
             finally:
                 db.close()
@@ -116,7 +116,7 @@ def register_events(sio: socketio.AsyncServer):
                 await ws_manager.leave_game_room(sid, session['room_id'])
                 
                 # Notificar a otros jugadores en el room
-                await sio.emit('player_disconnected', {
+                await sio.emit('disconnected', {
                     'user_id': user_id,
                     'message': f'Jugador {user_id} se desconectó'
                 }, room=f"game_{session['room_id']}")
