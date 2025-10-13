@@ -46,48 +46,57 @@ async def finalizar_partida(game_id: int, winners: List[Dict]):
         logger.info(f"Persistida partida {game_id} como terminada.")
     finally:
         db.close()
-
-async def procesar_ultima_carta(game_id: int, room_id: int, carta: str, game_state: Dict, jugador_que_actuo: int):
+async def procesar_ultima_carta(game_id: int, room_id: int, game_state: Dict):
     """Procesa la última carta del mazo y detecta el final de la partida"""
     from app.sockets.socket_service import get_websocket_service
     
-    deck_remaining = game_state.get("mazos", {}).get("deck", 0)
-
-    if deck_remaining == 1:
+    # Check deck count from build_complete_game_state structure
+    deck_count = game_state.get("mazos", {}).get("deck", {}).get("count", 0)
+    
+    if deck_count == 1:
         logger.info(f"Fin de mazo alcanzado en game_id {game_id}")
         winners: List[Dict] = []
-
-        # Find murderer and accomplice from secretos
-        for player_id, secrets in game_state.get("secretos", {}).items():
-            for secret in secrets:
+        
+        # Find murderer and accomplice from estados_privados
+        estados_privados = game_state.get("estados_privados", {})
+        
+        for player_id, estado in estados_privados.items():
+            secretos = estado.get("secretos", [])
+            
+            # Get player info from jugadores list
+            player_info = next(
+                (j for j in game_state.get("jugadores", []) if j["player_id"] == player_id),
+                None
+            )
+            
+            for secret in secretos:
                 if secret["name"] == "Secret Murderer":
-                    winners.append({"role": "murderer", "player_id": player_id})
+                    winners.append({
+                        "role": "murderer",
+                        "player_id": player_id,
+                        "name": player_info["name"] if player_info else "Unknown",
+                        "avatar_src": player_info["avatar_src"] if player_info else ""
+                    })
                 elif secret["name"] == "Secret Accomplice":
-                    winners.append({"role": "accomplice", "player_id": player_id})
-
-        # Update game state to finished
-        game_state["status"] = "FINISH"
+                    winners.append({
+                        "role": "accomplice",
+                        "player_id": player_id,
+                        "name": player_info["name"] if player_info else "Unknown",
+                        "avatar_src": player_info["avatar_src"] if player_info else ""
+                    })
         
         # Mark room as finished in database
         await finalizar_partida(game_id, winners)
-
-        # Add winners info to game_state
-        game_state["winners"] = winners
-        game_state["game_finished"] = True
-        game_state["finish_reason"] = "deck_exhausted_murderer_wins"
-
-        # Use notificar_estado_partida for consistency
+        
+        # Notify game ended
         ws_service = get_websocket_service()
-        await ws_service.notificar_estado_partida(
+        await ws_service.notificar_fin_partida(
             room_id=room_id,
-            jugador_que_actuo=jugador_que_actuo,
-            game_state=game_state,
-            partida_finalizada=True,
-            ganador_id=winners[0]["player_id"] if winners else None  # Primary winner (murderer)
+            winners=winners,
+            reason="deck_empty"
         )
         
         logger.info(f"Partida {game_id} finalizada, winners: {winners}")
-
 
 def join_game_logic(db: Session, room_id: int, player_data: dict):
     try:
