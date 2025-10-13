@@ -17,3 +17,11 @@ class OneMoreSecondRequest(BaseModel):
 
 class OneMoreSecondResponse(BaseModel):
     allowed_players: list[int]
+
+# And then was one more (step 3)
+class OneMoreThirdRequest(Basemodel):
+    action_id: int
+    target_player_id: int
+
+class OneMoreThirdResponse(Basemodel):
+    sucess: bool

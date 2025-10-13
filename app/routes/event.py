@@ -4,7 +4,7 @@ from app.db.database import SessionLocal
 from pydantic import BaseModel
 from app.db.models import Game, Room, CardsXGame, CardState, Player, RoomStatus, Card, ActionsPerTurn
 from app.sockets.socket_service import get_websocket_service
-from app.schemas.event_schema import OneMoreStartRequest, OneMoreStartResponse, OneMoreSecondRequest, OneMoreSecondResponse
+from app.schemas.event_schema import OneMoreStartRequest, OneMoreStartResponse, OneMoreSecondRequest, OneMoreSecondResponse, OneMoreThirdRequest, OneMoreThirdResponse
 from datetime import datetime
 
 router = APIRouter(prefix="/api/game", tags=["Events"])
@@ -144,8 +144,8 @@ async def one_more_step_2(
     }
 
 
-# One-More: third step seleccionar secreto
-@router.post("/{room_id}/event/one-more/select-secret", response_model = OneMoreThirdResponse, status_code = 200)
+# One-More: second step seleccionar secreto
+@router.post("/{room_id}/event/one-more/select-player", response_model = OneMoreThirdResponse, status_code = 200)
 async def one_more_step_3(
     room_id: int,
     payload: OneMoreThirdRequest,
@@ -174,28 +174,52 @@ async def one_more_step_3(
     if action.player_id != user_id:
         raise HTTPException(status_code = 403, detail = "not_your_action")
 
+    #chequear si el secreto existe
+    secret = db.query(CardsXGame).filter(CardsXGame.id == action.secret_target, CardsXGame.id_game == game.id).first()
 
-
-    #busco el secreto y chequeo q este revelado
-    secret = db.query(CardsXGame).filter(CardsXGame.id == payload.secretId, CardsXGame.id_game == game.id, CardsXGame.is_in == CardState.SECRET_SET).first()
     if not secret:
-        raise HTTPException(status_code = 404, detail = "secret_not_found")
+        raise HTTPException(status_code=404, detail="secret_not_found")
 
-    if secret.hidden:
-        raise HTTPException(status_code = 400, detail = "secret_not_revealed")
-
-    # chequeo que targetplayer exista en la partida
-    target = db.query(Player).filter(Player.id == payload.targetPlayerId,Player.id_room == room_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="target_player_not_found")
-
-    #guardo el owner 
-    original_owner_id = secret.player_id
-
-    # ahora q tengo el secreto, le cambio el player_id y el hidden
-    secret.player_id = payload.targetPlayerId
+    #muevo el secreto al jugaddor target y lo oculto
+    secret.player_id = payload.target_player_id
     secret.hidden = True
+    db.commit()
 
 
+    sub_action = ActionsPerTurn(
+    id_game=game.id,
+    actionName="and_then_one_more_select_player",
+    player_id=user_id,
+    parent_action_id=payload.action_id,  # referencia la acción previa
+    player_target=payload.target_player_id,
+    secret_target=secret.id,
+    to_be_hidden=True,
+    action_time=datetime.utcnow())
 
+    db.add(sub_action)
+    db.commit()
+    db.refresh(sub_action)
 
+    # Notificaciones
+    ws_service = get_websocket_service()
+    await ws_service.notificar_event_step_update(
+        room_id=room_id,
+        player_id=user_id,
+        event_type="one_more",
+        step="player_selected",
+        message=f"Secret given to Player {payload.target_player_id}",
+        data={"target_player_id": payload.target_player_id}
+    )
+
+    await ws_service.notificar_event_action_complete(
+        room_id=room_id,
+        player_id=user_id,
+        event_type="one_more"
+    )
+
+    await ws_service.notificar_estado_partida()
+
+    # Respuesta final
+    return {
+        "success": True,
+    }
