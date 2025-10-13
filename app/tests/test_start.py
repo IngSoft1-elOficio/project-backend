@@ -43,7 +43,11 @@ class Card:
 class CardsXGame:
     id_game, is_in, player_id, position, id_card = [ColumnMock(x) for x in
         ("id_game", "is_in", "player_id", "position", "id_card")]
-    def __init__(self, **kwargs): self.__dict__.update(kwargs)
+    _id_counter = 0
+    def __init__(self, **kwargs): 
+        CardsXGame._id_counter += 1
+        self.id = CardsXGame._id_counter
+        self.__dict__.update(kwargs)
 
 class GameObj:  # creado por create_game
     def __init__(self, id): self.id, self.player_turn_id = id, None
@@ -75,6 +79,7 @@ class FakeDB:
     def refresh(self, obj): pass
     def rollback(self): self._rolledback = True
     def close(self): pass
+    def flush(self): pass
 
 @pytest.fixture(autouse=True)
 def no_shuffle(monkeypatch): monkeypatch.setattr(random, "shuffle", lambda x: x)
@@ -135,7 +140,7 @@ async def test_not_enough_players(monkeypatch):
     db = FakeDB(); db.rooms.append(Room(3, players_min=4))
     db.players += [Player(1,"A",3,date(1990,1,1),True), Player(2,"B",3,date(1991,1,1))]
     patch_models(monkeypatch)
-    with pytest.raises(Exception, match="No hay suficientes jugadores"):
+    with pytest.raises(Exception, match="Cantidad incorrecta de jugadores"):
         await start_game(3, types.SimpleNamespace(user_id=1), db)
 
 @pytest.mark.asyncio
@@ -196,3 +201,15 @@ async def test_queryfake_all_other_model():
     q = db.query(DummyModel)
     res = q.all()
     assert res == []
+
+# Test para cubrir el rollback en excepcion general
+@pytest.mark.asyncio
+async def test_rollback_on_flush_exception(monkeypatch, setup_db, fake_ws, fake_create):
+    patch_models(monkeypatch)
+    # Fuerza excepción en flush para disparar el rollback
+    def fail_flush():
+        raise Exception("flush fail")
+    setup_db.flush = fail_flush
+    with pytest.raises(Exception, match="Error interno al iniciar la partida: flush fail"):
+        await start_game(1, types.SimpleNamespace(user_id=10), setup_db)
+    assert hasattr(setup_db, '_rolledback') and setup_db._rolledback
