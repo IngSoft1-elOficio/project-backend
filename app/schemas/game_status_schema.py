@@ -49,7 +49,8 @@ class GameView(BaseModel):
 # ================================
 
 class DeckView(BaseModel):
-    remaining: int  
+    remaining: int
+    draft: List[CardSummary] = []
 
 class DiscardView(BaseModel):
     top: Optional[CardSummary] = None  

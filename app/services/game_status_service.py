@@ -95,9 +95,21 @@ def _build_players_view(players):
     ]
 
 def _build_deck_view(db: Session, game_id: int):
-    """Construye DeckView con contador de cartas."""
     deck_count = crud.count_cards_by_state(db, game_id, "DECK")
-    return DeckView(remaining=deck_count)
+    draft_entries = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.is_in == "DRAFT"
+    ).order_by(models.CardsXGame.position.asc()).all()
+    draft = [
+        CardSummary(
+            id=entry.id,  # id único de CardsXGame
+            card_id=entry.card.id,  # id base de la carta
+            name=entry.card.name,
+            type=entry.card.type,
+            img=entry.card.img_src
+        ) for entry in draft_entries if entry.card
+    ]
+    return DeckView(remaining=deck_count, draft=draft)
 
 def _build_discard_view(db: Session, game_id: int):
     """Construye DiscardView con carta superior y contador."""
