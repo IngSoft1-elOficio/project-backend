@@ -422,6 +422,21 @@ class WebSocketService:
         await self.ws_manager.emit_to_room(room_id, "card_drawn_simple", mensaje)
         logger.info(f"✅ Emitted card_drawn_simple to room {room_id}")
 
+    async def notificar_turn_finished(
+        self,
+        room_id: int,
+        player_id: int,
+    ):
+        """Notify all players that a turn has been finished"""
+        mensaje = {
+            "type": "turn_finished",
+            "player_id": player_id,
+            "message": f"Player {player_id} finished their turn.",
+            "timestamp": datetime.now().isoformat()
+        }
+        await self.ws_manager.emit_to_room(room_id, "turn_finished", mensaje)
+        logger.info(f"✅ Emitted turn_finished to room {room_id}: Player {player_id}")
+
 _websocket_service = None
 
 def get_websocket_service() -> WebSocketService:

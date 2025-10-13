@@ -124,6 +124,7 @@ async def finish_turn(
             jugador_que_actuo=request.user_id,
             game_state=game_state
         )
+        await ws_service.notificar_turn_finished(room_id=room_id, player_id=request.user_id)
     
     return {
         "status": "ok",
