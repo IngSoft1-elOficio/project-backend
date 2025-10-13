@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from datetime import date
 from app.db import models, crud
 from app.db.database import Base
-from app.services.game_status_service import get_game_status_service
+from app.services.game_status_service import get_game_status_service, build_complete_game_state
 from app.schemas.game_status_schema import GameStateView
 
 # Configuración de BD en memoria para tests
@@ -407,3 +407,61 @@ def test_empty_deck_and_discard(db):
     assert result.discard.top is None
     assert result.hand is None
     assert result.secrets is None
+
+# ------------------------------
+# TESTS build_complete_game_state
+# ------------------------------
+
+def test_build_complete_game_state_success(db, setup_game_data):
+    """Test estado completo del juego: salida estructurada y consistente."""
+    data = setup_game_data
+
+    result = build_complete_game_state(db, data["game"].id)
+
+    # Validar estructura general
+    assert isinstance(result, dict)
+    assert result["game_id"] == data["game"].id
+    assert result["status"] == "INGAME"
+    assert result["turno_actual"] == data["player1"].id
+
+    # Validar jugadores
+    assert "jugadores" in result
+    assert len(result["jugadores"]) == 2
+    player_entry = next(p for p in result["jugadores"] if p["player_id"] == data["player1"].id)
+    assert player_entry["name"] == "Ana"
+    assert player_entry["is_host"] is True
+    assert player_entry["hand_size"] == 6
+    assert player_entry["total_secrets_count"] == 3
+    assert isinstance(player_entry["detective_set"], bool)
+
+    # Validar mazos
+    mazos = result["mazos"]
+    assert "deck" in mazos
+    assert "discard" in mazos
+    assert mazos["deck"]["count"] == 25
+    assert isinstance(mazos["deck"]["draft"], list)
+    assert mazos["discard"]["count"] == 1
+    assert isinstance(mazos["discard"]["top"], str)
+
+    # Validar estados privados
+    assert "estados_privados" in result
+    assert str(data["player1"].id) in map(str, result["estados_privados"].keys())
+    private_p1 = result["estados_privados"][data["player1"].id]
+    assert "mano" in private_p1
+    assert len(private_p1["mano"]) == 6
+    assert "secretos" in private_p1
+    assert len(private_p1["secretos"]) == 3
+
+
+def test_build_complete_game_state_game_not_found(db):
+    """Debe devolver {} si la partida no existe."""
+    result = build_complete_game_state(db, 999)
+    assert result == {}
+
+
+def test_build_complete_game_state_room_not_found(db):
+    """Debe lanzar HTTPException si la sala no existe."""
+    game = crud.create_game(db, {})
+
+    with pytest.raises(HTTPException):
+        build_complete_game_state(db, game.id)

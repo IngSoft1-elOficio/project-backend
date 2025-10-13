@@ -117,7 +117,6 @@ async def finish_turn(
             jugador_que_actuo=request.user_id
         )
     else:
-        # Normal notification if game not finished
         ws_service = get_websocket_service()
         await ws_service.notificar_estado_partida(
             room_id=room_id,

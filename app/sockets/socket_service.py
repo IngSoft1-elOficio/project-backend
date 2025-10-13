@@ -134,9 +134,9 @@ class WebSocketService:
             await self.ws_manager.emit_to_sid(sid, "game_ended", resultado)
             logger.info(f"✅ Emitted game_ended to user {user_id} (winner: {is_winner})")
     
-    # ========================================
-    # COMBINED METHOD - For backward compatibility
-    # ========================================
+    # --------------------------------------------
+    # | Metodo Anterior - backward compatibility |
+    # --------------------------------------------
     
     async def notificar_estado_partida(
         self,
@@ -168,59 +168,6 @@ class WebSocketService:
             )
         
         # 3. Game ended (if applicable)
-        if partida_finalizada:
-            await self.notificar_fin_partida(
-                room_id=room_id,
-                winners=game_state.get("winners", []),
-                reason=game_state.get("finish_reason", "Game completed")
-            )
-    
-    # ========================================
-    # CONVENIENCE METHOD - Most common use case
-    # ========================================
-    
-    async def notificar_estado_completo(
-        self,
-        room_id: int,
-        game_state: Dict[str, Any],
-        partida_finalizada: bool = False
-    ):
-        """
-        Convenience method to notify complete game state
-        
-        Expected game_state structure:
-        {
-            # Public data
-            "game_id": int,
-            "status": str,
-            "turno_actual": int,
-            "jugadores": List[Dict],
-            "mazos": Dict,
-            
-            # Private data (per player)
-            "estados_privados": {
-                player_id: {
-                    "mano": List[Dict],
-                    "secretos": List[Dict]
-                }
-            },
-            
-            # Game end data (if applicable)
-            "winners": List[Dict],
-            "finish_reason": str
-        }
-        """
-        # Public state
-        await self.notificar_estado_publico(room_id, game_state)
-        
-        # Private states
-        if game_state.get("estados_privados"):
-            await self.notificar_estados_privados(
-                room_id,
-                game_state["estados_privados"]
-            )
-        
-        # Game ended
         if partida_finalizada:
             await self.notificar_fin_partida(
                 room_id=room_id,

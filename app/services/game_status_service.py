@@ -260,7 +260,7 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
             models.CardsXGame.id_game == game_id,
             models.CardsXGame.is_in == models.CardState.DISCARD
         )
-        .order_by(models.CardsXGame.position.desc())  # highest position = topmost
+        .order_by(models.CardsXGame.position.desc())  
         .first()
     )
 
@@ -347,7 +347,7 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
                 "name": c.card.name,
                 "description": c.card.description,
                 "img_src": c.card.img_src,
-                "revealed": not c.hidden  # hidden=False means revealed
+                "revealed": not c.hidden  
             }
             for c in secret_cards
         ]
