@@ -91,7 +91,8 @@ async def finish_turn(
     
     # Avanzar turno
     players = db.query(Player).filter(Player.id_room == room.id).order_by(Player.order.asc()).all()
-    
+
+
     current_order = next((p.order for p in players if p.id == request.user_id), None)
     next_order = (current_order % len(players)) + 1
     next_player = next((p for p in players if p.order == next_order), None)
@@ -106,24 +107,14 @@ async def finish_turn(
     # Build game state
     game_state = build_complete_game_state(db, game.id)
        
-    # CHECK FOR GAME END
-    if deck_count == 0:
-        from app.services.game_service import procesar_ultima_carta
-        await procesar_ultima_carta(
-            game_id=game.id,
-            room_id=room_id,
-            carta=new_card.card.name,
-            game_state=game_state,
-            jugador_que_actuo=request.user_id
-        )
-    else:
-        ws_service = get_websocket_service()
-        await ws_service.notificar_estado_partida(
-            room_id=room_id,
-            jugador_que_actuo=request.user_id,
-            game_state=game_state
-        )
-        await ws_service.notificar_turn_finished(room_id=room_id, player_id=request.user_id)
+
+    ws_service = get_websocket_service()
+    await ws_service.notificar_estado_partida(
+        room_id=room_id,
+        jugador_que_actuo=request.user_id,
+        game_state=game_state
+    )
+    await ws_service.notificar_turn_finished(room_id=room_id, player_id=request.user_id)
     
     return {
         "status": "ok",
