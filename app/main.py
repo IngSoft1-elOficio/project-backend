@@ -26,8 +26,8 @@ app.add_middleware(
 sio = socketio.AsyncServer(
     async_mode="asgi",
     cors_allowed_origins="*",
-    logger=True,          # para debugear
-    engineio_logger=True
+    logger=False,          # para debugear
+    engineio_logger=False
 )
 
 # Inicializar manager global
@@ -40,8 +40,8 @@ from app.sockets.socket_events import register_events
 register_events(sio)
 
 # Incluir rutas de la API
-from app.routes import api
-app.include_router(api.router)
+from app.routes import get_list
+app.include_router(get_list.router)
 from app.routes import game
 app.include_router(game.router)
 from app.routes import start
@@ -50,8 +50,8 @@ from app.routes import join
 app.include_router(join.router)
 from app.routes import discard
 app.include_router(discard.router)
-from app.routes import skip_turn
-app.include_router(skip_turn.router)
+from app.routes import finish_turn
+app.include_router(finish_turn.router)
 from app.routes import take_deck
 app.include_router(take_deck.router)
 

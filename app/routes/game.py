@@ -17,7 +17,7 @@ def get_db():
 
 @router.post("/game", response_model=GameResponse, status_code=201)
 def create_game(newgame: GameCreateRequest, db: Session = Depends(get_db)):
-    print("POST /game received:", newgame)
+    print(f"🎯 POST /game received: {newgame}")
     
     try:
         existing_room = db.query(models.Room).filter(
