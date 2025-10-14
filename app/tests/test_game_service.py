@@ -117,8 +117,8 @@ async def test_procesar_ultima_carta_mazo_vacio_murderer_wins():
                 {"player_id": 2, "name": "Bob", "avatar_src": "avatar2.png"}
             ],
             "estados_privados": {
-                1: {"secretos": [{"name": "Secret Murderer"}]},
-                2: {"secretos": [{"name": "Secret Accomplice"}]}
+                1: {"secretos": [{"name": "You are the Murderer!!"}]},
+                2: {"secretos": [{"name": "You are the Accomplice!"}]}
             }
         }
 
