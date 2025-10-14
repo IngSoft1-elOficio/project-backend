@@ -267,8 +267,8 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
    # Get top 3 cards from DECK (not DRAFT)
     get_draft = db.query(models.CardsXGame).join(models.Card).filter(
         models.CardsXGame.id_game == game_id,
-        models.CardsXGame.is_in == models.CardState.DECK
-    ).order_by(models.CardsXGame.position.desc()).limit(3).all()
+        models.CardsXGame.is_in == models.CardState.DRAFT
+    ).order_by(models.CardsXGame.position.asc()).all()
 
     draft = [
         {
