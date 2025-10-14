@@ -2,9 +2,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
+from app.services.game_status_service import build_complete_game_state
 from pydantic import BaseModel
 from app.db.models import Game, Room, CardsXGame, CardState, Player
-from app.services.game_service import robar_cartas_del_mazo, actualizar_turno
+from app.services.game_service import actualizar_turno, procesar_ultima_carta
+from app.services.take_deck import robar_cartas_del_mazo
 from app.sockets.socket_service import get_websocket_service
 from datetime import datetime
 
@@ -74,7 +76,7 @@ async def cards_off_the_table(
     discarded = []
     drawn = []
     
-    if len(nsf_cards) > 0:
+    if len(nsf_cards) > 0 and len(nsf_cards) > deck_count_before:
         # Calcular siguiente posición en discard
         next_discard_pos = db.query(CardsXGame).filter(
             CardsXGame.id_game == game.id,
@@ -82,89 +84,50 @@ async def cards_off_the_table(
         ).count()
         
         # Descartar todas las cartas NSF
-        for i, card in enumerate(nsf_cards):
+        for i, card in enumerate(nsf_cards, start = 1):
             card.is_in = CardState.DISCARD
             card.player_id = None
             card.position = next_discard_pos + i
-            discarded.append(card)
+            discarded.insert(0, card)
+            db.add(CardsXGame(
+                id_game=game.id,
+                id_card=card.id,
+                is_in=CardState.DISCARD,
+                position=card.position
+            ))
         
         db.commit()
 
         # Reponer cartas (solo si hay cartas en el mazo)
-        if deck_count_before > 1:
+        if deck_count_before > len(nsf_cards):
             cantidad_a_robar = min(len(discarded), deck_count_before)
             drawn = await robar_cartas_del_mazo(db, game, victim.id, cantidad_a_robar)
+        else:
+            game_state = build_complete_game_state(db, game.id)
+            await procesar_ultima_carta(
+              game_id=game.id,
+              room_id=room_id,
+              game_state=game_state
+            )
     
-    # Check deck count DESPUÉS para ver si se acabó
-    deck_count_after = db.query(CardsXGame).filter(
+    # Contar cartas restantes en el mazo
+    deck_remaining = db.query(CardsXGame).filter(
         CardsXGame.id_game == game.id,
         CardsXGame.is_in == CardState.DECK
     ).count()
     
+    game_state = build_complete_game_state(db, game.id)
+    
+    # Emit complete game state via WebSocket
+    ws_service = get_websocket_service()
+    await ws_service.notificar_estado_partida(
+        room_id=room_id,
+        jugador_que_actuo=user_id,
+        game_state=game_state
+    )
+
     # Avanzar turno
     await actualizar_turno(db, game)
-    
-    # Me traigo los players
-    players = db.query(Player).filter(Player.id_room == room_id).order_by(Player.order.asc()).all()
-
-    game_state = {
-        "game_id": game.id,
-        "status": "INGAME",
-        "turno_actual": game.player_turn_id,
-        "jugadores": [{"id": p.id, "name": p.name, "is_host": p.is_host, "order": p.order} for p in players],
-        "mazos": {
-            "deck": deck_count_after,
-            "discard": {
-                "top": to_card_summary(discarded[-1]) if discarded else None,
-                "count": db.query(CardsXGame).filter(
-                    CardsXGame.id_game == game.id,
-                    CardsXGame.is_in == CardState.DISCARD
-                ).count()
-            }
-        },
-        "manos": {
-            p.id: [
-                {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
-                for c in db.query(CardsXGame).filter(
-                    CardsXGame.id_game == game.id,
-                    CardsXGame.player_id == p.id,
-                    CardsXGame.is_in == CardState.HAND
-                ).all()
-            ]
-            for p in players
-        },
-        "secretos": {
-            p.id: [
-                {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
-                for c in db.query(CardsXGame).filter(
-                    CardsXGame.id_game == game.id,
-                    CardsXGame.player_id == p.id,
-                    CardsXGame.is_in == CardState.SECRET_SET
-                ).all()
-            ]
-            for p in players
-        },
-        "timestamp": datetime.now().isoformat()
-    }
-
-    # Chequeo si el mazo está en 1 y se acabó el juego
-    if deck_count_after == 1 and drawn:
-        from app.services.game_service import procesar_ultima_carta
-        await procesar_ultima_carta(
-            game_id=game.id,
-            room_id=room_id,
-            carta=drawn[-1].card.name,
-            game_state=game_state,
-            jugador_que_actuo=user_id
-        )
-    else:
-        # Emit complete game state via WebSocket
-        ws_service = get_websocket_service()
-        await ws_service.notificar_estado_partida(
-            room_id=room_id,
-            jugador_que_actuo=user_id,
-            game_state=game_state
-        )
     
     return {
         "status": "ok",
@@ -174,5 +137,5 @@ async def cards_off_the_table(
         "cards_drawn": len(drawn),
         "had_nsf": len(nsf_cards) > 0,
         "next_turn": game.player_turn_id,
-        "deck_remaining": deck_count_after
+        "deck_remaining": deck_remaining
     }
