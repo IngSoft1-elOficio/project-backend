@@ -76,7 +76,7 @@ async def cards_off_the_table(
     discarded = []
     drawn = []
     
-    if len(nsf_cards) > 0 and len(nsf_cards) > deck_count_before:
+    if len(nsf_cards) > 0:
         # Calcular siguiente posición en discard
         next_discard_pos = db.query(CardsXGame).filter(
             CardsXGame.id_game == game.id,
@@ -84,30 +84,25 @@ async def cards_off_the_table(
         ).count()
         
         # Descartar todas las cartas NSF
-        for i, card in enumerate(nsf_cards, start = 1):
+        for i, card in enumerate(nsf_cards):
             card.is_in = CardState.DISCARD
             card.player_id = None
             card.position = next_discard_pos + i
-            discarded.insert(0, card)
-            db.add(CardsXGame(
-                id_game=game.id,
-                id_card=card.id,
-                is_in=CardState.DISCARD,
-                position=card.position
-            ))
+            discarded.append(card) 
+        
+        # Reponer cartas solo si hay suficientes en el mazo
+        if deck_count_before >= len(nsf_cards):
+            drawn = await robar_cartas_del_mazo(db, game, victim.id, len(nsf_cards))
         
         db.commit()
-
-        # Reponer cartas (solo si hay cartas en el mazo)
-        if deck_count_before > len(nsf_cards):
-            cantidad_a_robar = min(len(discarded), deck_count_before)
-            drawn = await robar_cartas_del_mazo(db, game, victim.id, cantidad_a_robar)
-        else:
+        
+        # Si no hay cartas suficientes, procesar fin de mazo
+        if deck_count_before < len(nsf_cards):
             game_state = build_complete_game_state(db, game.id)
             await procesar_ultima_carta(
-              game_id=game.id,
-              room_id=room_id,
-              game_state=game_state
+                game_id=game.id,
+                room_id=room_id,
+                game_state=game_state
             )
     
     # Contar cartas restantes en el mazo
