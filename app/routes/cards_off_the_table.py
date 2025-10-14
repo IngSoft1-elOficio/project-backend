@@ -91,7 +91,7 @@ async def cards_off_the_table(
             discarded.append(card) 
         
         # Reponer cartas solo si hay suficientes en el mazo
-        if deck_count_before >= len(nsf_cards):
+        if deck_count_before > len(nsf_cards):
             drawn = await robar_cartas_del_mazo(db, game, victim.id, len(nsf_cards))
         
         db.commit()
