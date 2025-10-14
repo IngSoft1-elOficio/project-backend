@@ -59,31 +59,41 @@ async def procesar_ultima_carta(game_id: int, room_id: int, game_state: Dict):
         
         # Find murderer and accomplice from estados_privados
         estados_privados = game_state.get("estados_privados", {})
+        jugadores_info = game_state.get("jugadores", [])
+
+        jugadores_map = {j["player_id"]: j for j in jugadores_info}
+        logger.info(f"🔍 Estados privados disponibles: {list(estados_privados.keys())}")
         
-        for player_id, estado in estados_privados.items():
-            secretos = estado.get("secretos", [])
-            
-            # Get player info from jugadores list
-            player_info = next(
-                (j for j in game_state.get("jugadores", []) if j["player_id"] == player_id),
-                None
-            )
+        for player_id, estado_privado in estados_privados.items():
+            secretos = estado_privado.get("secretos", [])
+            player_info = jugadores_map.get(player_id, {})
+            logger.info(f"🔍 Player {player_id} ({player_info.get('name', 'Unknown')}): {len(secretos)} secretos")
             
             for secret in secretos:
-                if secret["name"] == "Secret Murderer":
+                secret_name = secret.get("name", "")
+                logger.info(f"  - Secret: {secret_name}")
+                if secret_name == "You are the Murderer!!":
                     winners.append({
                         "role": "murderer",
                         "player_id": player_id,
-                        "name": player_info["name"] if player_info else "Unknown",
-                        "avatar_src": player_info["avatar_src"] if player_info else ""
+                        "name": player_info.get("name", "Unknown"),
+                        "avatar_src": player_info.get("avatar_src", "")
                     })
-                elif secret["name"] == "Secret Accomplice":
+                    logger.info(f"🔪 Asesino encontrado: {player_info.get('name')} (ID: {player_id})")
+                elif secret_name == "You are the Accomplice!":
                     winners.append({
                         "role": "accomplice",
                         "player_id": player_id,
-                        "name": player_info["name"] if player_info else "Unknown",
-                        "avatar_src": player_info["avatar_src"] if player_info else ""
+                        "name": player_info.get("name", "Unknown"),
+                        "avatar_src": player_info.get("avatar_src", "")
                     })
+                    logger.info(f"🤝 Cómplice encontrado: {player_info.get('name')} (ID: {player_id})")
+
+        if not winners:
+            logger.error(f"⚠️ No se encontraron ganadores!")
+            logger.error(f"Estados privados: {estados_privados}")
+        else:
+            logger.info(f"✅ Ganadores identificados: {winners}")
         
         # Mark room as finished in database
         await finalizar_partida(game_id, winners)
