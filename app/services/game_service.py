@@ -93,7 +93,7 @@ async def procesar_ultima_carta(game_id: int, room_id: int, game_state: Dict):
             logger.error(f"⚠️ No se encontraron ganadores!")
             logger.error(f"Estados privados: {estados_privados}")
         else:
-            logger.info(f"✅ Ganadores identificados: {winners}")
+            print(f"\n✅ Ganadores identificados: {winners}")
         
         # Mark room as finished in database
         await finalizar_partida(game_id, winners)
