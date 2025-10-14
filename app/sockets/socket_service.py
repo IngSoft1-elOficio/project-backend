@@ -72,7 +72,7 @@ class WebSocketService:
         if not sids:
             logger.warning(f"Room {room_id} has no connected players")
             return
-        
+          
         for sid in sids:
             session = self.ws_manager.get_user_session(sid)
             if not session:
@@ -132,6 +132,7 @@ class WebSocketService:
             }
             
             await self.ws_manager.emit_to_sid(sid, "game_ended", resultado)
+            print(f"✅ Se emitio el fin de partida")
             logger.info(f"✅ Emitted game_ended to user {user_id} (winner: {is_winner})")
     
     # --------------------------------------------
