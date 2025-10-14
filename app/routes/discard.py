@@ -79,19 +79,14 @@ async def discard_cards(
     # descartar
     discarded = await descartar_cartas(db, game, user_id, ordered_player_cards)
     print(f"📤 Orden final descartado: {[c.id_card for c in discarded]}")  # LOG 4
-    
-    # reponer
-    # drawn = await robar_cartas_del_mazo(db, game, user_id, len(discarded))
+  
 
     # Check deck count
     deck_count = db.query(CardsXGame).filter(
         CardsXGame.id_game == game.id,
         CardsXGame.is_in == CardState.DEC
     ).count()
-    
-    # turno
-    # await actualizar_turno(db, game)
-    
+
     # Get all players
     players = db.query(Player).filter(Player.id_room == room_id).order_by(Player.order.asc()).all()
     
@@ -128,38 +123,27 @@ async def discard_cards(
 
     game_state = build_complete_game_state(db, game.id)
 
-    # Check for game end
-    if deck_count == 0:
-        from app.services.game_service import procesar_ultima_carta
-        await procesar_ultima_carta(
-            game_id=game.id,
-            room_id=room_id,
-            carta=drawn[-1].card.name,
-            game_state=game_state,
-            jugador_que_actuo=user_id
-        )
-    else:
-        # Emit complete game state via WebSocket
-        ws_service = get_websocket_service()
-        await ws_service.notificar_estado_partida(
-            room_id=room_id,
-            jugador_que_actuo=user_id,
-            game_state=game_state
-        )
+    # Emit complete game state via WebSocket
+    ws_service = get_websocket_service()
+    await ws_service.notificar_estado_partida(
+        room_id=room_id,
+        jugador_que_actuo=user_id,
+        game_state=game_state
+    )
 
-        await ws_service.notificar_player_must_draw(
-            room_id=room_id,
-            player_id=user_id,
-            cards_to_draw=len(discarded)
-        )
-    
+    await ws_service.notificar_player_must_draw(
+        room_id=room_id,
+        player_id=user_id,
+        cards_to_draw=len(discarded)
+    )
+
     # Verificar todo el mazo de descarte
     all_discarded = db.query(CardsXGame).filter(
         CardsXGame.id_game == game.id,
         CardsXGame.is_in == CardState.DISCARD
     ).order_by(CardsXGame.position.asc()).all()
 
-    print(f"\n📚 MAZO DE DESCARTE COMPLETO (orden por position):")
+    print(f"\n MAZO DE DESCARTE COMPLETO (orden por position):")
     for card in all_discarded:
         print(f"  Position {card.position}: Carta {card.id_card} - {card.card.name if card.card else 'N/A'}")
     print(f"Total: {len(all_discarded)} cartas\n")
