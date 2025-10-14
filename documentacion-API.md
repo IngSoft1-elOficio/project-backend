@@ -26,7 +26,24 @@ Esta sección refleja los modelos actuales del backend (SQLAlchemy) y agrega "vi
 
 - **CardType**: "EVENT" | "SECRET" | "INSTANT" | "DEVIUOS" | "DETECTIVE" | "END"
 - **RoomStatus**: "WAITING" | "INGAME" | "FINISH"
-- **CardState**: "DECK" | "DRAFT" | "DISCARD" | "SECRET_SET" | "DETECTIVE_SET" | "HAND"
+- **CardState**: "DECK" | "DRAFT" | "DISCARD" | "SECRET_SET" | "DETECTIVE_SET" | "HAND" | "REMOVED"
+- **TurnStatus**: "IN_PROGRESS" | "FINISHED"
+- **ActionType**: 
+  - "EVENT_CARD" // Jugada de carta de evento
+  - "DETECTIVE_SET" // Bajar set de detective
+  - "ADD_DETECTIVE" // Agregar detective a set existente
+  - "DISCARD" // Descartar cartas
+  - "DRAW" // Robar carta
+  - "INSTANT" // Carta instantánea
+  - "REVEAL_SECRET" // Revelar secreto
+  - "HIDE_SECRET" // Ocultar secreto
+  - "VOTE" // Votación
+  - "CARD_EXCHANGE" // Intercambio de cartas
+  - "MOVE_CARD" // Mover carta entre estados
+  - "STEAL_SET" // Robar set de detective
+- **ActionResult**: "PENDING" | "SUCCESS" | "CANCELLED" | "FAILED"
+- **Direction**: "LEFT" | "RIGHT"
+- **SourcePile**: "DRAFT_PILE" | "DRAW_PILE" | "DISCARD_PILE"
 
 ### 3.2 Entidades persistentes (DB)
 
@@ -69,16 +86,35 @@ Esta sección refleja los modelos actuales del backend (SQLAlchemy) y agrega "vi
 - player_id: integer | null (FK a Player)
 - hidden: boolean (default: true) // Indica si la carta es visible o no
 
+**Turn**
+- id: integer
+- number: integer
+- id_game: integer (FK a Game)
+- player_id: integer (FK a Player)
+- status: TurnStatus (IN_PROGRESS | FINISHED)
+- start_time: datetime (default: CURRENT_TIMESTAMP)
+
 **ActionsPerTurn**
 - id: integer
 - id_game: integer (FK a Game)
-- action_time: datetime (default: CURRENT_TIMESTAMP)
-- actionName: string(40)
+- turn_id: integer (FK a Turn)
 - player_id: integer (FK a Player)
+- action_time: datetime (default: CURRENT_TIMESTAMP)
+- action_name: string(40)
+- action_type: ActionType
+- result: ActionResult (PENDING | SUCCESS | CANCELLED | FAILED)
 - parent_action_id: integer | null (FK a ActionsPerTurn)
+- triggered_by_action_id: integer | null (FK a ActionsPerTurn)
 - player_source: integer | null (FK a Player)
 - player_target: integer | null (FK a Player)
 - secret_target: integer | null (FK a CardsXGame)
+- selected_card_id: integer | null (FK a CardsXGame)
+- card_given_id: integer | null (FK a CardsXGame)
+- card_received_id: integer | null (FK a CardsXGame)
+- direction: Direction (LEFT | RIGHT)
+- source_pile: SourcePile (DRAFT_PILE | DRAW_PILE | DISCARD_PILE)
+- position_card: integer | null
+- selected_set_id: integer | null
 - to_be_hidden: boolean | null
 
 ### 3.3 View Models (API)
@@ -686,6 +722,8 @@ curl -s -X POST "http://localhost:8000/game/42/draft/pick" \
 
 **Descripción**: Jugar un set de cartas de detective, validando la combinación según el tipo de set y gestionando la siguiente acción requerida.
 
+**Nota**: Para entender el flujo completo de acciones y su interacción con la tabla ActionsPerTurn, consultar [actions-turn-flow.md](actions-turn-flow.md)
+
 **Path params**: 
 - room_id: integer
 
@@ -855,6 +893,8 @@ curl -s -X POST "http://localhost:8000/api/game/42/detective-action" \
 
 **Descripción**: Fuerza a un jugador objetivo a descartar todas sus cartas "Not so fast..." (NSF). Esta acción no puede ser cancelada por NSF.
 
+**Nota**: Para entender el flujo completo de acciones y su interacción con la tabla ActionsPerTurn, consultar [actions-turn-flow.md](actions-turn-flow.md)
+
 **Path params**: 
 - room_id: integer
 
@@ -966,6 +1006,8 @@ curl -s -X POST "http://localhost:8000/api/game/42/detective-action" \
 
 **Descripción**: Permite al jugador activo reclamar un set de detective existente de otro jugador.
 
+**Nota**: Para entender el flujo completo de acciones y su interacción con la tabla ActionsPerTurn, consultar [actions-turn-flow.md](actions-turn-flow.md)
+
 **Path params**: 
 - room_id: integer
 
@@ -1020,12 +1062,17 @@ curl -s -X POST "http://localhost:8000/api/game/42/detective-action" \
 
 **Descripción**: Permite al jugador ver las 5 cartas superiores del mazo de descarte y tomar una.
 
+**Nota**: Para entender el flujo completo de acciones y su interacción con la tabla ActionsPerTurn, consultar [actions-turn-flow.md](actions-turn-flow.md)
+
 **Path params**: 
 - room_id: integer
 
 **Comportamiento en dos pasos**
 
 **Paso 1 - Mostrar cartas disponibles**
+La visualización de las cartas disponibles puede implementarse de dos maneras:
+
+a) Mediante endpoint GET (implementación opcional):
 GET /api/game/{room_id}/event/look-into-ashes/available
 
 **Response 200**
@@ -1037,6 +1084,9 @@ GET /api/game/{room_id}/event/look-into-ashes/available
     ]
 }
 ```
+
+b) A través del estado del juego (recomendado):
+Las cartas disponibles del mazo de descarte se pueden obtener del estado actual de la partida, que se mantiene actualizado mediante eventos WebSocket. El cliente puede acceder a la información del mazo de descarte y sus cartas visibles directamente del estado del juego.
 
 **Paso 2 - Seleccionar carta**
 POST /api/game/{room_id}/event/look-into-ashes/select
@@ -1076,6 +1126,8 @@ POST /api/game/{room_id}/event/look-into-ashes/select
 ### 4.14 POST /api/game/{room_id}/event/and-then-one-more
 
 **Descripción**: Permite agregar un secreto revelado al set de secretos de cualquier jugador, ocultándolo.
+
+**Nota**: Para entender el flujo completo de acciones y su interacción con la tabla ActionsPerTurn, consultar [actions-turn-flow.md](actions-turn-flow.md)
 
 **Path params**: 
 - room_id: integer
@@ -1119,10 +1171,15 @@ POST /api/game/{room_id}/event/look-into-ashes/select
 
 **Descripción**: Permite tomar hasta 5 cartas del tope del descarte y colocarlas en el mazo regular en orden especificado.
 
+**Nota**: Para entender el flujo completo de acciones y su interacción con la tabla ActionsPerTurn, consultar [actions-turn-flow.md](actions-turn-flow.md)
+
 **Path params**: 
 - room_id: integer
 
 **Paso 1 - Ver cartas disponibles**
+La visualización de las cartas disponibles puede implementarse de dos maneras:
+
+a) Mediante endpoint GET (implementación opcional):
 GET /api/game/{room_id}/event/delay-murderer-escape/available
 
 **Response 200**
@@ -1150,6 +1207,10 @@ GET /api/game/{room_id}/event/delay-murderer-escape/available
     ],
     "count": 3
 }
+```
+
+b) A través del estado del juego (recomendado):
+Las cartas disponibles se pueden obtener del estado actual de la partida, que se mantiene actualizado mediante eventos WebSocket. El cliente puede acceder a la información del mazo de descarte y sus cartas visibles directamente del estado del juego.
 ```
 
 **Paso 2 - Seleccionar cartas**
