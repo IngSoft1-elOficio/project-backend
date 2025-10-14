@@ -2,6 +2,7 @@
 import pytest
 import os
 from unittest.mock import Mock, patch, AsyncMock
+from app.services.game_service import procesar_ultima_carta
 
 # Config vars before imports
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
@@ -82,69 +83,88 @@ class TestGameService:
         
         mock_db.close.assert_called_once()
 
-    @patch('app.sockets.socket_service.get_websocket_service')
-    @pytest.mark.asyncio
-    async def test_procesar_ultima_carta_mazo_no_vacio(self, mock_ws_service):
+@pytest.mark.asyncio
+async def test_procesar_ultima_carta_mazo_no_vacio():
+    """Si el mazo tiene más de 1 carta, no debe notificar fin de partida"""
+    with patch('app.sockets.socket_service.get_websocket_service') as mock_ws_service:
         mock_ws = Mock()
         mock_ws_service.return_value = mock_ws
-        
-        game_state = {
-            "mazos": {"deck": 5},
-            "status": "INGAME"
-        }
-        
-        # Since deck != 0, should do nothing
-        await procesar_ultima_carta(123, 1, "some_card", game_state, 42)
-        
-        assert game_state["status"] == "INGAME"
-        mock_ws.notificar_estado_partida.assert_not_called()
 
-    @patch('app.services.game_service.finalizar_partida', new_callable=AsyncMock)
-    @patch('app.sockets.socket_service.get_websocket_service')
-    @pytest.mark.asyncio
-    async def test_procesar_ultima_carta_mazo_vacio_murderer_wins(self, mock_ws_service, mock_finalizar):
-        """Test when deck is empty and Murder Escapes card is played"""
-        mock_ws = Mock()
-        mock_ws.notificar_estado_partida = AsyncMock()
-        mock_ws_service.return_value = mock_ws
-        
         game_state = {
-            "mazos": {"deck": 0},
-            "status": "INGAME",
-            "secretos": {
-                "1": [{"name": "Secret Murderer"}],
-                "2": [{"name": "Secret Accomplice"}]
+            "mazos": {"deck": {"count": 5}},  # mazo > 1
+            "jugadores": [],
+            "estados_privados": {}
+        }
+
+        await procesar_ultima_carta(123, 1, game_state)
+        mock_ws.notificar_fin_partida.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_procesar_ultima_carta_mazo_vacio_murderer_wins():
+    """Si el mazo queda en 1 carta, debe notificar fin y winners correctos"""
+    with patch('app.sockets.socket_service.get_websocket_service') as mock_ws_service, \
+         patch('app.services.game_service.finalizar_partida', new_callable=AsyncMock) as mock_finalizar:
+
+        mock_ws = Mock()
+        mock_ws.notificar_fin_partida = AsyncMock()
+        mock_ws_service.return_value = mock_ws
+
+        game_state = {
+            "mazos": {"deck": {"count": 1}},  # última carta
+            "jugadores": [
+                {"player_id": 1, "name": "Alice", "avatar_src": "avatar1.png"},
+                {"player_id": 2, "name": "Bob", "avatar_src": "avatar2.png"}
+            ],
+            "estados_privados": {
+                1: {"secretos": [{"name": "Secret Murderer"}]},
+                2: {"secretos": [{"name": "Secret Accomplice"}]}
             }
         }
-        
-        await procesar_ultima_carta(123, 1, "Murder Escapes", game_state, 42)
-        
-        assert game_state["status"] == "FINISH"
-        assert game_state["game_finished"] is True
-        assert game_state["finish_reason"] == "deck_exhausted_murderer_wins"
-        assert len(game_state["winners"]) == 2
-        mock_ws.notificar_estado_partida.assert_called_once()
-        mock_finalizar.assert_called_once()
 
-    @patch('app.services.game_service.finalizar_partida', new_callable=AsyncMock)
-    @patch('app.sockets.socket_service.get_websocket_service')
-    @pytest.mark.asyncio
-    async def test_procesar_ultima_carta_mazo_vacio_sin_murderer_wins(self, mock_ws_service, mock_finalizar):
-        """Test when deck is empty but carta is not Murder Escapes"""
+        await procesar_ultima_carta(123, 42, game_state)
+
+        winners = mock_finalizar.call_args[0][1]
+        assert len(winners) == 2
+        assert any(w["role"] == "murderer" and w["player_id"] == 1 for w in winners)
+        assert any(w["role"] == "accomplice" and w["player_id"] == 2 for w in winners)
+
+        mock_ws.notificar_fin_partida.assert_awaited_once_with(
+            room_id=42,
+            winners=winners,
+            reason="deck_empty"
+        )
+        mock_finalizar.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_procesar_ultima_carta_mazo_vacio_sin_winners():
+    """Si el mazo queda en 1 carta pero no hay winners, debe notificar fin con lista vacía"""
+    with patch('app.sockets.socket_service.get_websocket_service') as mock_ws_service, \
+         patch('app.services.game_service.finalizar_partida', new_callable=AsyncMock) as mock_finalizar:
+
         mock_ws = Mock()
-        mock_ws.notificar_estado_partida = AsyncMock()
+        mock_ws.notificar_fin_partida = AsyncMock()
         mock_ws_service.return_value = mock_ws
-        
+
         game_state = {
-            "mazos": {"deck": 0},
-            "status": "INGAME",
-            "secretos": {}
+            "mazos": {"deck": {"count": 1}},
+            "jugadores": [
+                {"player_id": 1, "name": "Alice", "avatar_src": "avatar1.png"}
+            ],
+            "estados_privados": {
+                1: {"secretos": [{"name": "Other Secret"}]}
+            }
         }
-        
-        await procesar_ultima_carta(123, 1, "Other Card", game_state, 42)
-        
-        assert game_state["status"] == "FINISH"
-        assert game_state["game_finished"] is True
-        assert game_state["winners"] == []
-        mock_ws.notificar_estado_partida.assert_called_once()
-        mock_finalizar.assert_called_once()
+
+        await procesar_ultima_carta(123, 42, game_state)
+
+        winners = mock_finalizar.call_args[0][1]
+        assert winners == []
+
+        mock_ws.notificar_fin_partida.assert_awaited_once_with(
+            room_id=42,
+            winners=[],
+            reason="deck_empty"
+        )
+        mock_finalizar.assert_awaited_once()
