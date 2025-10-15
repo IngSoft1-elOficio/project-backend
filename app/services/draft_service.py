@@ -18,6 +18,7 @@ def pick_card_from_draft(db: Session, card_id: int, user_id: int) -> CardSummary
         return None
 
     game_id = draft_entry.id_game
+    selected_pos = draft_entry.position
 
     # Buscar la posicion maxima en la mano
     max_pos = db.query(CardsXGame.position).filter(
@@ -38,10 +39,10 @@ def pick_card_from_draft(db: Session, card_id: int, user_id: int) -> CardSummary
     top_deck = db.query(CardsXGame).filter(
         CardsXGame.id_game == game_id,
         CardsXGame.is_in == 'DECK'
-    ).order_by(CardsXGame.position.desc()).first()
+    ).order_by(CardsXGame.position.asc()).first()
     if top_deck:
         top_deck.is_in = 'DRAFT'
-        top_deck.position = draft_entry.position  # Reemplaza la posicion del draft
+        top_deck.position = selected_pos
         db.commit()
         db.refresh(top_deck)
 

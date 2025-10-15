@@ -1,10 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
-from app.db.models import Game
+from app.db.models import Game, Room, CardsXGame, CardState
 from app.schemas.draft import DraftRequest
 from app.services.draft_service import list_draft_cards, pick_card_from_draft
+from app.services.game_service import procesar_ultima_carta
 from app.services.game_status_service import _build_hand_view, _build_deck_view, build_complete_game_state
+from app.sockets.socket_service import get_websocket_service
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/game/{game_id}/draft", tags=["Draft"])
 
@@ -55,32 +60,40 @@ async def pick_card(game_id: int, draft_request: DraftRequest, db: Session = Dep
         new_deck = _build_deck_view(db, game_id)
 
         # Obtener room_id para las notificaciones
-        from app.db.models import Room
         room = db.query(Room).filter(Room.id_game == game_id).first()
         room_id = room.id if room else game_id
 
+        # Verificar si el draft esta vacio para terminar la partida
+        draft_remaining = db.query(CardsXGame).filter(
+            CardsXGame.id_game == game_id,
+            CardsXGame.is_in == CardState.DRAFT
+        ).count()
+
         # Emitir eventos por WebSocket
         try:
-            from app.sockets.socket_service import get_websocket_service
             ws_service = get_websocket_service()
-            # Notificar al jugador su mano actualizada
-            await ws_service.notificar_estados_privados(room_id=room_id, estados_privados=game_state["estados_privados"])
-            # Notificar a la sala el estado del deck y draft
-            await ws_service.notificar_estado_partida(room_id=room_id, jugador_que_actuo=draft_request.user_id, game_state=game_state)
-            # Notificar a todos que el jugador robo del draft
-            await ws_service.notificar_card_drawn_simple(
-                room_id=room_id,
-                player_id=draft_request.user_id,
-                drawn_from="draft",
-                cards_remaining= 6 - len(new_hand.cards)
-            )
-        except Exception:
-            pass
+            
+            if draft_remaining == 0:
+                await procesar_ultima_carta(game_id=game_id, room_id=room_id, game_state=game_state)
+            else:
+                # Notificar al jugador su mano actualizada
+                await ws_service.notificar_estados_privados(room_id=room_id, estados_privados=game_state["estados_privados"])
+                # Notificar a la sala el estado del deck y draft
+                await ws_service.notificar_estado_partida(room_id=room_id, jugador_que_actuo=draft_request.user_id, game_state=game_state)
+                # Notificar a todos que el jugador robo del draft
+                await ws_service.notificar_card_drawn_simple(
+                    room_id=room_id,
+                    player_id=draft_request.user_id,
+                    drawn_from="draft",
+                    cards_remaining= 6 - len(new_hand.cards)
+                )
+        except Exception as e:
+            logger.error(f"Failed to notify WebSocket for room {room_id}: {e}")
 
         # Retornar la carta seleccionada y el nuevo estado
         return {"picked_card": picked_card, "hand": new_hand, "deck": new_deck}
 
     except Exception as e:
         import traceback
-        print("ERROR EN /draft/pick:\n", traceback.format_exc())
+        logger.error("ERROR EN /draft/pick:\n", traceback.format_exc())
         raise HTTPException(status_code=400, detail=str(e))

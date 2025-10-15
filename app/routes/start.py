@@ -87,7 +87,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         db.commit()
         db.refresh(game)
 
-        exclude_special = ['Card Back', 'Murderer Escapes', 'Secret Front']
+        exclude_special = ['Card Back', 'Murderer Escapes!', 'Secret Front']
 
         def pick_cards(card_types: typing.List[CardType], count: int, exclude_names: typing.List[str] = None) -> typing.List[Card]:
             cards = db.query(Card).filter(
@@ -172,7 +172,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         remaining_cards = db.query(Card).filter(
             Card.type != CardType.SECRET,
             Card.name != "Card Back",
-            Card.name != "Murder Escapes"
+            Card.name != "Murderer Escapes!"
         ).all()
 
         # Draft
@@ -212,10 +212,6 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
                     break
 
         random.shuffle(deck_pool)
-
-        murderer_escapes = db.query(Card).filter(Card.name == "Murderer Escapes!").first()
-        if murderer_escapes:
-            deck_pool.append(murderer_escapes)
 
         for pos, c in enumerate(deck_pool, start=1):
             db.add(CardsXGame(
