@@ -206,7 +206,6 @@ async def test_queryfake_all_other_model():
 @pytest.mark.asyncio
 async def test_rollback_on_flush_exception(monkeypatch, setup_db, fake_ws, fake_create):
     patch_models(monkeypatch)
-    # Fuerza excepción en flush para disparar el rollback
     def fail_flush():
         raise Exception("flush fail")
     setup_db.flush = fail_flush

@@ -131,3 +131,14 @@ def test_create_game_internal_error(sample_request, mock_db, mock_get_db):
 
     app.dependency_overrides.clear()
 
+def test_get_db_real_session():
+    from app.routes.game import get_db
+    gen = get_db()
+    db = next(gen)
+    assert db is not None
+    # Forzar finally
+    try:
+        pass
+    finally:
+        gen.close()
+
