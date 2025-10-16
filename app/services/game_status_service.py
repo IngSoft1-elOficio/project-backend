@@ -7,6 +7,7 @@ from app.schemas.game_status_schema import (
     STATUS_MAPPING
 )
 from typing import Dict, Any, Optional, List
+from collections import defaultdict
 
 def get_game_status_service(db: Session, game_id: int, user_id: int) -> GameStateView:
     """Recupera el estado de la partida y valida la pertenencia del usuario."""
@@ -299,19 +300,23 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         models.CardsXGame.is_in == models.CardState.DETECTIVE_SET
     ).all()
 
-    # Count manually by player
-    detective_counts = {}
+    # Group by player and detective (id_card)
+    detective_sets = defaultdict(lambda: defaultdict(int))
     for c in detective_set_cards:
         if c.player_id is None:
             continue
-        detective_counts[c.player_id] = detective_counts.get(c.player_id, 0) + 1
+        detective_sets[c.player_id][c.id_card] += 1
 
-    for player_id, count in detective_counts.items():
-        sets.append({
-            "owner_id": player_id,
-            "set_type": models.CardState.DETECTIVE_SET.value,
-            "count": count
-        })
+    # Create one entry per detective set
+    for player_id, detectives in detective_sets.items():
+        for detective_card_id, count in detectives.items():
+            sets.append({
+                "owner_id": player_id,
+                "set_type": detective_card_id,  # The detective's card ID
+                "count": count
+            })
+
+    print(f"SETS to SEND: {sets}")
 
     # Build private states for each player
     estados_privados = {}
