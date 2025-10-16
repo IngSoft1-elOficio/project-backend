@@ -9,7 +9,7 @@ from ..db.models import (
 from ..db import crud
 from ..schemas.detective_set_schema import (
     SetType, PlayDetectiveSetRequest, NextActionType, 
-    NextAction, NextActionMetadata, SET_MIN_CARDS, SET_ACTION_NAMES
+    NextAction, NextActionMetadata, SecretInfo, SET_MIN_CARDS, SET_ACTION_NAMES
 )
 
 
@@ -313,17 +313,20 @@ class DetectiveSetService:
         
         metadata = NextActionMetadata(hasWildcard=has_wildcard)
         
-        # Poirot y Marple: el activo elige jugador Y secreto
+        # Poirot y Marple: el activo elige jugador Y secreto (cualquiera, oculto o revelado)
         if set_type in [SetType.POIROT, SetType.MARPLE]:
+            secrets_info = self._get_secrets_info(game_id, allowed_players, only_revealed=False)
+            metadata.secretsPool = secrets_info
             return NextAction(
                 type=NextActionType.SELECT_PLAYER_AND_SECRET,
                 allowedPlayers=allowed_players,
                 metadata=metadata
             )
         
-        # Pyne: el activo elige jugador Y secreto REVELADO
+        # Pyne: el activo elige jugador Y secreto REVELADO solamente
         if set_type == SetType.PYNE:
-            metadata.secretsPool = "revealed"
+            secrets_info = self._get_secrets_info(game_id, allowed_players, only_revealed=True)
+            metadata.secretsPool = secrets_info
             return NextAction(
                 type=NextActionType.SELECT_PLAYER_AND_SECRET,
                 allowedPlayers=allowed_players,
@@ -351,3 +354,45 @@ class DetectiveSetService:
         Excluye al owner y a jugadores en desgracia social.
         """
         return crud.get_players_not_in_disgrace(self.db, game_id, exclude_player_id)
+    
+    def _get_secrets_info(self, game_id: int, allowed_players: List[int], only_revealed: bool = False) -> List[SecretInfo]:
+        """
+        Obtiene información de los secretos disponibles para robar.
+        
+        Args:
+            game_id: ID del juego
+            allowed_players: Lista de IDs de jugadores de los que se pueden robar secretos
+            only_revealed: Si True, solo incluye secretos revelados (hidden=False)
+        
+        Returns:
+            Lista de SecretInfo con position, playerId, hidden y cardId (si está revelado)
+        """
+        secrets = []
+        
+        for player_id in allowed_players:
+            # Obtener secretos del jugador
+            query = self.db.query(CardsXGame).filter(
+                CardsXGame.id_game == game_id,
+                CardsXGame.player_id == player_id,
+                CardsXGame.is_in == CardState.SECRET_SET
+            ).order_by(CardsXGame.position)
+            
+            if only_revealed:
+                query = query.filter(CardsXGame.hidden == False)
+            
+            player_secrets = query.all()
+            
+            for secret_card in player_secrets:
+                card_id = None
+                if not secret_card.hidden:
+                    # Si está revelado, incluir el ID de la carta
+                    card_id = secret_card.id_card
+                
+                secrets.append(SecretInfo(
+                    playerId=player_id,
+                    position=secret_card.position,
+                    hidden=secret_card.hidden,
+                    cardId=card_id
+                ))
+        
+        return secrets

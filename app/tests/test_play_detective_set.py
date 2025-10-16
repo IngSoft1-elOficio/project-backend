@@ -208,11 +208,19 @@ def test_validate_set_has_invalid_cards():
 # ============================================
 
 def test_determine_next_action_poirot():
-    """Test que Poirot retorna SELECT_PLAYER_AND_SECRET"""
+    """Test que Poirot retorna SELECT_PLAYER_AND_SECRET con todos los secretos"""
     mock_db = Mock()
     service = DetectiveSetService(mock_db)
     
-    with patch.object(service, '_get_allowed_players', return_value=[2, 3, 4]):
+    # Mock de secretos disponibles
+    from app.schemas.detective_set_schema import SecretInfo
+    mock_secrets = [
+        SecretInfo(playerId=2, position=1, hidden=True, cardId=None),
+        SecretInfo(playerId=3, position=1, hidden=False, cardId=15)
+    ]
+    
+    with patch.object(service, '_get_allowed_players', return_value=[2, 3, 4]), \
+         patch.object(service, '_get_secrets_info', return_value=mock_secrets):
         next_action = service._determine_next_action(
             set_type=SetType.POIROT,
             has_wildcard=False,
@@ -223,15 +231,22 @@ def test_determine_next_action_poirot():
     assert next_action.type == NextActionType.SELECT_PLAYER_AND_SECRET
     assert next_action.allowedPlayers == [2, 3, 4]
     assert next_action.metadata.hasWildcard == False
-    assert next_action.metadata.secretsPool is None
+    assert next_action.metadata.secretsPool == mock_secrets
 
 
 def test_determine_next_action_pyne():
-    """Test que Pyne retorna SELECT_PLAYER_AND_SECRET con secretsPool='revealed'"""
+    """Test que Pyne retorna SELECT_PLAYER_AND_SECRET solo con secretos revelados"""
     mock_db = Mock()
     service = DetectiveSetService(mock_db)
     
-    with patch.object(service, '_get_allowed_players', return_value=[2, 3]):
+    # Mock de secretos revelados solamente
+    from app.schemas.detective_set_schema import SecretInfo
+    mock_revealed_secrets = [
+        SecretInfo(playerId=2, position=1, hidden=False, cardId=20)
+    ]
+    
+    with patch.object(service, '_get_allowed_players', return_value=[2, 3]), \
+         patch.object(service, '_get_secrets_info', return_value=mock_revealed_secrets):
         next_action = service._determine_next_action(
             set_type=SetType.PYNE,
             has_wildcard=False,
@@ -240,7 +255,7 @@ def test_determine_next_action_pyne():
         )
     
     assert next_action.type == NextActionType.SELECT_PLAYER_AND_SECRET
-    assert next_action.metadata.secretsPool == "revealed"
+    assert next_action.metadata.secretsPool == mock_revealed_secrets
 
 
 def test_determine_next_action_satterthwaite():
@@ -429,7 +444,11 @@ def test_play_detective_set_full_flow_mock():
     ]
     mock_action = Mock(id=501)
     
-    with patch('app.services.detective_set_service.crud') as mock_crud:
+    from app.schemas.detective_set_schema import SecretInfo
+    mock_secrets = [SecretInfo(playerId=2, position=1, hidden=True, cardId=None)]
+    
+    with patch('app.services.detective_set_service.crud') as mock_crud, \
+         patch.object(service, '_get_secrets_info', return_value=mock_secrets):
         # Setup mocks
         mock_crud.get_game_by_id.return_value = mock_game
         mock_crud.get_player_by_id.return_value = mock_player
@@ -446,6 +465,7 @@ def test_play_detective_set_full_flow_mock():
         assert action_id == 501
         assert next_action.type == NextActionType.SELECT_PLAYER_AND_SECRET
         assert next_action.allowedPlayers == [2, 3]
+        assert next_action.metadata.secretsPool == mock_secrets
         
         # Verificar que se llamó commit
         mock_db.commit.assert_called_once()

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, validator
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from enum import Enum
 
 
@@ -21,16 +21,50 @@ class NextActionType(str, Enum):
     COMPLETE = "complete"  # No requiere más acciones (por ahora no usado)
 
 
+class SecretInfo(BaseModel):
+    """Información de un secreto disponible para ser robado"""
+    playerId: int = Field(..., description="ID del jugador dueño del secreto")
+    position: int = Field(..., description="Posición del secreto en el set del jugador")
+    hidden: bool = Field(..., description="Si el secreto está oculto (True) o revelado (False)")
+    cardId: Optional[int] = Field(None, description="ID de la carta si está revelada (para obtener img_src, name, etc.)")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "playerId": 2,
+                "position": 1,
+                "hidden": False,
+                "cardId": 15
+            }
+        }
+
+
 class NextActionMetadata(BaseModel):
-    """Metadata adicional para la siguiente acción"""
-    hasWildcard: Optional[bool] = False
-    secretsPool: Optional[str] = None  # "revealed" para Pyne
+    """Metadatos adicionales para la siguiente acción"""
+    hasWildcard: bool = Field(default=False, description="Si el set incluye un comodín")
+    secretsPool: Optional[List[SecretInfo]] = Field(
+        default=None, 
+        description="Lista de secretos disponibles para robar (solo para selectPlayerAndSecret)"
+    )
     
     class Config:
         json_schema_extra = {
             "example": {
                 "hasWildcard": True,
-                "secretsPool": None
+                "secretsPool": [
+                    {
+                        "playerId": 2,
+                        "position": 1,
+                        "hidden": False,
+                        "cardName": "The Poisoned Pen"
+                    },
+                    {
+                        "playerId": 3,
+                        "position": 2,
+                        "hidden": True,
+                        "cardName": None
+                    }
+                ]
             }
         }
 

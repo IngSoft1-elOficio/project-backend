@@ -14,7 +14,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/game", tags=["Games"])
+router = APIRouter(prefix="/api/game", tags=["Games"])
 
 
 def get_db():
@@ -41,7 +41,7 @@ async def play_detective_set(
     Valida el set, actualiza CardsXGame, crea la acción PENDING en ActionsPerTurn,
     y emite eventos WebSocket notificando el inicio de la acción.
     """
-    logger.info(f"🎯 POST /game/{room_id}/play-detective-set - Player {request.owner}")
+    logger.info(f"🎯 POST /api/game/{room_id}/play-detective-set - Player {request.owner}")
     
     # 1. Validar que la room existe
     room = db.query(Room).filter(Room.id == room_id).first()
