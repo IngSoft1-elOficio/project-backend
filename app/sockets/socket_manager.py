@@ -76,7 +76,7 @@ class WebSocketManager:
             await self.sio.leave_room(sid, room)
 
             # notificar a otros jugadores
-            await self.sio.emit('leaved_room', {
+            await self.sio.emit('player_disconnected', {
                 'user_id': user_id,
                 'game_id': game_id,
                 'timestamp': datetime.now().isoformat()

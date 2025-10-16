@@ -6,6 +6,9 @@ from app.schemas.take_deck import TakeDeckRequest, TakeDeckResponse
 from app.services.take_deck import robar_cartas_del_mazo
 from app.sockets.socket_service import get_websocket_service
 from datetime import datetime
+from app.services.game_service import procesar_ultima_carta
+from app.services.game_status_service import build_complete_game_state
+
 
 router = APIRouter(prefix="/game", tags=["Games"])
 
@@ -81,46 +84,21 @@ async def take_from_deck(
     # Notificar vía WebSocket (opcional - si querés que otros vean que robó)
     players = db.query(Player).filter(Player.id_room == room_id).order_by(Player.order.asc()).all()
     
+    game_state = game_state = build_complete_game_state(db, game.id)
+
     ws_service = get_websocket_service()
+        
     await ws_service.notificar_estado_partida(
         room_id=room_id,
         jugador_que_actuo=user_id,
-        game_state={
-            "game_id": game.id,
-            "status": "INGAME",
-            "turno_actual": game.player_turn_id,
-            "jugadores": [{"id": p.id, "name": p.name, "is_host": p.is_host, "order": p.order} for p in players],
-            "mazos": {
-                "deck": deck_remaining,
-                "discard": db.query(CardsXGame).filter(
-                    CardsXGame.id_game == game.id,
-                    CardsXGame.is_in == CardState.DISCARD
-                ).count(),
-            },
-            "manos": {
-                p.id: [
-                    {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
-                    for c in db.query(CardsXGame).filter(
-                        CardsXGame.id_game == game.id,
-                        CardsXGame.player_id == p.id,
-                        CardsXGame.is_in == CardState.HAND
-                    ).all()
-                ]
-                for p in players
-            },
-            "secretos": {
-                p.id: [
-                    {"id": c.id_card, "name": c.card.name, "type": c.card.type.value}
-                    for c in db.query(CardsXGame).filter(
-                        CardsXGame.id_game == game.id,
-                        CardsXGame.player_id == p.id,
-                        CardsXGame.is_in == CardState.SECRET_SET
-                    ).all()
-                ]
-                for p in players
-            },
-            "timestamp": datetime.now().isoformat()
-        }
+        game_state=game_state
+    )
+
+    await ws_service.notificar_card_drawn_simple(
+        room_id=room_id,
+        player_id=user_id,
+        drawn_from="deck",  # "deck" or "draft"
+        cards_remaining= 6 - len(hand)
     )
     
     return response
