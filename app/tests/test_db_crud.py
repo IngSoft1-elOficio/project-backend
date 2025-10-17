@@ -455,6 +455,65 @@ def test_get_max_position_by_state(db):
     assert max_pos_hand == 0
 
 
+def test_get_max_position_for_player_by_state(db):
+    """Test obtener posición máxima para un jugador y estado específico"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Mesa 1", "status": "INGAME", "id_game": game.id})
+    player1 = crud.create_player(db, {
+        "name": "Player 1",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 1, 1),
+        "id_room": room.id,
+        "is_host": True
+    })
+    player2 = crud.create_player(db, {
+        "name": "Player 2",
+        "avatar_src": "avatar2.png",
+        "birthdate": date(2000, 2, 2),
+        "id_room": room.id,
+        "is_host": False
+    })
+    
+    # Sin cartas, debe retornar 0
+    max_pos = crud.get_max_position_for_player_by_state(
+        db, game.id, player1.id, models.CardState.DETECTIVE_SET
+    )
+    assert max_pos == 0
+    
+    # Crear cartas
+    card1 = models.Card(name="Carta 1", description="desc", type="DETECTIVE", img_src="img1.png", qty=1)
+    card2 = models.Card(name="Carta 2", description="desc", type="DETECTIVE", img_src="img2.png", qty=1)
+    card3 = models.Card(name="Carta 3", description="desc", type="DETECTIVE", img_src="img3.png", qty=1)
+    card4 = models.Card(name="Carta 4", description="desc", type="DETECTIVE", img_src="img4.png", qty=1)
+    db.add_all([card1, card2, card3, card4])
+    db.commit()
+    
+    # Player 1 tiene 2 sets: position 1 y 2
+    entry1 = models.CardsXGame(id_game=game.id, id_card=card1.id, player_id=player1.id, 
+                               is_in=models.CardState.DETECTIVE_SET, position=1, hidden=False)
+    entry2 = models.CardsXGame(id_game=game.id, id_card=card2.id, player_id=player1.id, 
+                               is_in=models.CardState.DETECTIVE_SET, position=2, hidden=False)
+    # Player 2 tiene 1 set: position 1
+    entry3 = models.CardsXGame(id_game=game.id, id_card=card3.id, player_id=player2.id, 
+                               is_in=models.CardState.DETECTIVE_SET, position=1, hidden=False)
+    entry4 = models.CardsXGame(id_game=game.id, id_card=card4.id, player_id=player2.id, 
+                               is_in=models.CardState.DETECTIVE_SET, position=1, hidden=False)
+    db.add_all([entry1, entry2, entry3, entry4])
+    db.commit()
+    
+    # Player 1 debe tener max position = 2
+    max_pos_p1 = crud.get_max_position_for_player_by_state(
+        db, game.id, player1.id, models.CardState.DETECTIVE_SET
+    )
+    assert max_pos_p1 == 2
+    
+    # Player 2 debe tener max position = 1 (no 2!)
+    max_pos_p2 = crud.get_max_position_for_player_by_state(
+        db, game.id, player2.id, models.CardState.DETECTIVE_SET
+    )
+    assert max_pos_p2 == 1
+
+
 def test_update_cards_state(db):
     """Test actualizar estado de múltiples cartas"""
     game = crud.create_game(db, {})

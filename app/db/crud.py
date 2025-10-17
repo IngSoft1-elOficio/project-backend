@@ -235,6 +235,28 @@ def get_max_position_by_state(db: Session, game_id: int, state: str):
     return result[0] if result else 0
 
 
+def get_max_position_for_player_by_state(db: Session, game_id: int, player_id: int, state: str):
+    """
+    Obtiene la posición máxima de cartas de un jugador en un estado específico.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: ID del jugador
+        state: CardState (ej: 'DETECTIVE_SET', 'SECRET_SET', etc)
+    
+    Returns:
+        int: Posición máxima encontrada, o 0 si no hay cartas
+    """
+    result = db.query(models.CardsXGame.position).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.player_id == player_id,
+        models.CardsXGame.is_in == state
+    ).order_by(models.CardsXGame.position.desc()).first()
+    
+    return result[0] if result else 0
+
+
 def update_cards_state(db: Session, cards: list, new_state: str, position: int, hidden: bool):
     """
     Actualiza el estado de múltiples cartas.
