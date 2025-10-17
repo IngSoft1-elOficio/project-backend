@@ -697,3 +697,143 @@ def test_get_players_not_in_disgrace(db):
     game_no_room = crud.create_game(db, {})
     empty_list = crud.get_players_not_in_disgrace(db, game_no_room.id)
     assert empty_list == []
+
+
+# ------------------------------
+# TESTS TURN AND ACTIONS
+# ------------------------------
+
+def test_get_current_turn(db):
+    """Test para obtener el turno actual de un juego."""
+    # Crear sala, jugador y juego
+    room_data = {"name": "Test Room", "status": "INGAME"}
+    room = crud.create_room(db, room_data)
+    
+    player_data = {"name": "Player1", "avatar_src": "avatar1.png", "birthdate": date(2000, 1, 1), "id_room": room.id, "order": 1}
+    player = crud.create_player(db, player_data)
+    
+    game_data = {"id": 10, "player_turn_id": player.id}
+    game = crud.create_game(db, game_data)
+    
+    # Crear turno activo
+    turn = models.Turn(
+        number=1,
+        id_game=game.id,
+        player_id=player.id,
+        status=models.TurnStatus.IN_PROGRESS
+    )
+    db.add(turn)
+    db.commit()
+    
+    # Test: obtener turno actual
+    current_turn = crud.get_current_turn(db, game.id)
+    assert current_turn is not None
+    assert current_turn.id == turn.id
+    assert current_turn.status == models.TurnStatus.IN_PROGRESS
+    
+    # Test: no hay turno activo
+    turn.status = models.TurnStatus.FINISHED
+    db.commit()
+    no_turn = crud.get_current_turn(db, game.id)
+    assert no_turn is None
+
+
+def test_create_card_action(db):
+    """Test para crear acciones de cartas con la función helper."""
+    from datetime import datetime
+    
+    # Crear sala, jugador y juego
+    room_data = {"name": "Test Room", "status": "INGAME"}
+    room = crud.create_room(db, room_data)
+    
+    player_data = {"name": "Player1", "avatar_src": "avatar1.png", "birthdate": date(2000, 1, 1), "id_room": room.id, "order": 1}
+    player = crud.create_player(db, player_data)
+    
+    game_data = {"id": 10, "player_turn_id": player.id}
+    game = crud.create_game(db, game_data)
+    
+    # Crear turno
+    turn = models.Turn(
+        number=1,
+        id_game=game.id,
+        player_id=player.id,
+        status=models.TurnStatus.IN_PROGRESS
+    )
+    db.add(turn)
+    db.commit()
+    
+    # Crear carta para testing
+    card = models.Card(id=1, name="Test Card", description="Test description", type="event", img_src="test.png", qty=1)
+    db.add(card)
+    cards_x_game = models.CardsXGame(
+        id=1,
+        id_game=game.id,
+        id_card=card.id,
+        player_id=player.id,
+        is_in=models.CardState.HAND,
+        position=0
+    )
+    db.add(cards_x_game)
+    db.commit()
+    
+    # Test: acción de descarte
+    discard_action = crud.create_card_action(
+        db=db,
+        game_id=game.id,
+        turn_id=turn.id,
+        player_id=player.id,
+        action_type=models.ActionType.DISCARD,
+        source_pile=models.SourcePile.DISCARD_PILE,
+        card_id=cards_x_game.id,
+        position=0
+    )
+    
+    assert discard_action.id_game == game.id
+    assert discard_action.turn_id == turn.id
+    assert discard_action.player_id == player.id
+    assert discard_action.action_name == models.ActionName.END_TURN_DISCARD
+    assert discard_action.action_type == models.ActionType.DISCARD
+    assert discard_action.source_pile == models.SourcePile.DISCARD_PILE
+    assert discard_action.card_given_id == cards_x_game.id
+    assert discard_action.position_card == 0
+    assert discard_action.result == models.ActionResult.SUCCESS
+    
+    # Test: acción de robar
+    draw_action = crud.create_card_action(
+        db=db,
+        game_id=game.id,
+        turn_id=turn.id,
+        player_id=player.id,
+        action_type=models.ActionType.DRAW,
+        source_pile=models.SourcePile.DRAW_PILE,
+        card_id=cards_x_game.id
+    )
+    
+    assert draw_action.action_name == models.ActionName.DRAW_FROM_DECK
+    assert draw_action.action_type == models.ActionType.DRAW
+    assert draw_action.source_pile == models.SourcePile.DRAW_PILE
+    assert draw_action.card_received_id == cards_x_game.id
+    assert draw_action.position_card is None
+    
+    # Test: acción de draft
+    draft_action = crud.create_card_action(
+        db=db,
+        game_id=game.id,
+        turn_id=turn.id,
+        player_id=player.id,
+        action_type=models.ActionType.DRAW,
+        source_pile=models.SourcePile.DRAFT_PILE,
+        card_id=cards_x_game.id
+    )
+    
+    assert draft_action.action_name == models.ActionName.DRAFT_PHASE
+    assert draft_action.action_type == models.ActionType.DRAW
+    assert draft_action.source_pile == models.SourcePile.DRAFT_PILE
+    
+    db.commit()
+    
+    # Verificar que se crearon 3 acciones
+    actions = db.query(models.ActionsPerTurn).filter(
+        models.ActionsPerTurn.id_game == game.id
+    ).all()
+    assert len(actions) == 3
