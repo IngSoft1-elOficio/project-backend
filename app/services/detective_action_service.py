@@ -1,6 +1,6 @@
 # app/services/detective_action_service.py
 from sqlalchemy.orm import Session
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 from fastapi import HTTPException
 
 from ..db.models import (
@@ -12,7 +12,7 @@ from ..schemas.detective_action_schema import (
     DetectiveActionRequest, DetectiveActionResponse,
     RevealedSecret, HiddenSecret, TransferredSecret, EffectsSummary
 )
-from ..schemas.detective_set_schema import SetType
+from ..schemas.detective_set_schema import SetType, NextAction, NextActionType, NextActionMetadata, SecretInfo
 
 
 class DetectiveActionService:
@@ -44,6 +44,7 @@ class DetectiveActionService:
     ) -> DetectiveActionResponse:
         """
         Ejecuta una acción de detective pendiente.
+        Soporta flujo de 1 paso (Marple, Poirot, Pyne) y 2 pasos (Satterthwaite, Beresford, Eileen).
         
         Returns:
             DetectiveActionResponse con el resultado de la ejecución
@@ -54,8 +55,35 @@ class DetectiveActionService:
         game = self._get_game(game_id)
         action = self._get_pending_action(request.actionId, game_id)
         set_type = self._get_set_type(action.action_name)
-        
         owner_id = action.player_id
+        
+        # Detectar si es un detective de 2 pasos
+        if set_type in self.TARGET_SELECTS_OWN:
+            # Satterthwaite, Beresford, Eileen - Flujo de 2 pasos
+            if request.targetPlayerId and not request.secretId:
+                # PASO 1: Owner selecciona target
+                return self._handle_target_selection(game_id, action, request, set_type, owner_id)
+            elif request.secretId and not request.targetPlayerId:
+                # PASO 2: Target selecciona secreto
+                return self._handle_secret_selection(game_id, action, request, set_type, owner_id)
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="For 2-step detectives: provide targetPlayerId in step 1, then secretId in step 2"
+                )
+        
+        # Detectives de 1 paso (Marple, Poirot, Pyne)
+        return self._handle_single_step_action(game_id, action, request, set_type, owner_id)
+    
+    def _handle_single_step_action(
+        self,
+        game_id: int,
+        action: ActionsPerTurn,
+        request: DetectiveActionRequest,
+        set_type: SetType,
+        owner_id: int
+    ) -> DetectiveActionResponse:
+        """Maneja detectives de 1 paso (Marple, Poirot, Pyne)"""
         self._validate_executor(request.executorId, owner_id, set_type, request.targetPlayerId)
         
         executor = self._get_player(request.executorId, game_id)
@@ -85,6 +113,176 @@ class DetectiveActionService:
             nextAction=None,
             effects=effects
         )
+    
+    def _handle_target_selection(
+        self,
+        game_id: int,
+        action: ActionsPerTurn,
+        request: DetectiveActionRequest,
+        set_type: SetType,
+        owner_id: int
+    ) -> DetectiveActionResponse:
+        """
+        PASO 1: Owner selecciona el target player.
+        Guarda el target en ActionsPerTurn y retorna nextAction para que el target elija su secreto.
+        """
+        # Validar que el executor es el owner
+        if request.executorId != owner_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the set owner can select the target"
+            )
+        
+        # Validar que targetPlayerId fue provisto
+        if not request.targetPlayerId:
+            raise HTTPException(
+                status_code=400,
+                detail="targetPlayerId is required in step 1"
+            )
+        
+        # Validar que el target existe y pertenece al juego
+        target_player = self._get_player(request.targetPlayerId, game_id)
+        
+        # No puede seleccionarse a sí mismo
+        if request.targetPlayerId == owner_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot target yourself"
+            )
+        
+        # Guardar el target_player_id en la acción
+        # Usamos el campo player_target que ya existe en ActionsPerTurn
+        action.player_target = request.targetPlayerId
+        self.db.flush()
+        
+        # Obtener la lista de secretos disponibles del target (para nextAction)
+        available_secrets = self._get_player_secrets(game_id, request.targetPlayerId, set_type)
+        
+        # Crear nextAction para que el target seleccione su secreto
+        from app.schemas.detective_set_schema import NextActionType, NextActionMetadata, SecretInfo
+        
+        has_wildcard = self._check_action_has_wildcard(action)
+        
+        next_action = NextAction(
+            type=NextActionType.WAIT_FOR_OPPONENT,
+            allowedPlayers=[request.targetPlayerId],
+            metadata=NextActionMetadata(
+                hasWildcard=has_wildcard,
+                secretsPool=available_secrets
+            )
+        )
+        
+        self.db.commit()
+        
+        return DetectiveActionResponse(
+            success=True,
+            completed=False,  # Acción NO completada aún
+            nextAction=next_action,
+            effects=EffectsSummary(revealed=[], hidden=[], transferred=[])
+        )
+    
+    def _handle_secret_selection(
+        self,
+        game_id: int,
+        action: ActionsPerTurn,
+        request: DetectiveActionRequest,
+        set_type: SetType,
+        owner_id: int
+    ) -> DetectiveActionResponse:
+        """
+        PASO 2: Target selecciona su propio secreto.
+        Aplica los efectos y completa la acción.
+        """
+        # Obtener el target_player_id guardado en el paso 1
+        if not action.player_target:
+            raise HTTPException(
+                status_code=400,
+                detail="Target player was not selected in step 1"
+            )
+        
+        target_player_id = action.player_target
+        
+        # Validar que el executor es el target
+        if request.executorId != target_player_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the target player can select their secret"
+            )
+        
+        # Validar que secretId fue provisto
+        if not request.secretId:
+            raise HTTPException(
+                status_code=400,
+                detail="secretId is required in step 2"
+            )
+        
+        # Obtener y validar el secreto
+        secret_card = self._get_secret_card(request.secretId, target_player_id, game_id)
+        self._validate_secret(secret_card, set_type)
+        
+        has_wildcard = self._check_action_has_wildcard(action)
+        
+        # Aplicar el efecto
+        effects = self._apply_effect(
+            set_type=set_type,
+            secret_card=secret_card,
+            target_player_id=target_player_id,
+            owner_id=owner_id,
+            has_wildcard=has_wildcard,
+            game_id=game_id,
+            action=action,
+            executor_id=request.executorId
+        )
+        
+        # Marcar la acción como completada
+        crud.update_action_result(self.db, action.id, ActionResult.SUCCESS)
+        self.db.commit()
+        
+        return DetectiveActionResponse(
+            success=True,
+            completed=True,  # Acción COMPLETADA
+            nextAction=None,
+            effects=effects
+        )
+    
+    def _get_player_secrets(
+        self,
+        game_id: int,
+        player_id: int,
+        set_type: SetType
+    ) -> List:
+        """Obtiene la lista de secretos disponibles de un jugador para nextAction"""
+        from app.schemas.detective_set_schema import SecretInfo
+        
+        # Obtener secretos del jugador
+        query = self.db.query(CardsXGame).filter(
+            CardsXGame.id_game == game_id,
+            CardsXGame.player_id == player_id,
+            CardsXGame.is_in == CardState.SECRET_SET
+        )
+        
+        # Filtrar según el tipo de detective
+        if set_type == SetType.PYNE:
+            # Pyne solo puede ocultar secretos revelados
+            query = query.filter(CardsXGame.hidden == False)
+        else:
+            # Otros revelan/transfieren secretos ocultos
+            query = query.filter(CardsXGame.hidden == True)
+        
+        secrets = query.order_by(CardsXGame.position).all()
+        
+        # Convertir a SecretInfo
+        secret_list = []
+        for secret in secrets:
+            card_id = None if secret.hidden else secret.id_card
+            secret_list.append(SecretInfo(
+                playerId=player_id,
+                position=secret.position,
+                hidden=secret.hidden,
+                cardId=card_id
+            ))
+        
+        return secret_list
     
     def _get_game(self, game_id: int) -> Game:
         """Obtiene el juego o lanza 404"""

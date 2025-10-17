@@ -4,9 +4,11 @@
 # Script de Testing Detective Action - Flujo Completo
 # ======================================================================
 # Este script ejecuta el flujo completo de 3 jugadores:
-# 1. Player 1: Miss Marple (revela secreto de player 2)
-# 2. Player 2: Parker Pyne (oculta el secreto revelado)
-# 3. Player 3: Satterthwaite + wildcard (transfiere secreto de player 1)
+# 1. Player 1: Miss Marple (revela secreto de player 3) - 1 POST
+# 2. Player 2: Parker Pyne (oculta el secreto revelado) - 1 POST
+# 3. Player 3: Satterthwaite + wildcard (transfiere secreto de player 1) - 2 POSTs
+#    - POST 1: Owner (Player 3) selecciona target (Player 1)
+#    - POST 2: Target (Player 1) selecciona su secreto a transferir
 # ======================================================================
 
 set -e  # Exit on error
@@ -25,7 +27,7 @@ echo ""
 mysql -u $DB_USER -p$DB_PASSWORD $DB_NAME <<EOF
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS turn;
-DROP TABLE IF EXISTS actionsperturn;
+DROP TABLE IF EXISTS actions_per_turn;
 DROP TABLE IF EXISTS cardsXgame;
 DROP TABLE IF EXISTS player;
 DROP TABLE IF EXISTS room;
@@ -361,9 +363,56 @@ echo "✅ Detective set bajado exitosamente"
 ACTION_ID=$(echo "$RESPONSE" | jq -r '.actionId')
 echo "Action ID creado: $ACTION_ID"
 
-# Satterthwaite es "pasivo" - el TARGET selecciona su propio secreto
+# Satterthwaite es "pasivo" - FLUJO DE 2 POSTS:
+# POST 1: El OWNER (Player 3) selecciona al TARGET (Player 1)
+# POST 2: El TARGET (Player 1) selecciona su propio secreto a transferir
+
 TARGET_PLAYER=$PLAYER1_ID
 echo "Target Player ID (el que dona su secreto): $TARGET_PLAYER"
+
+echo ""
+echo "=========================================="
+echo "   POST 1: Owner selecciona target"
+echo "=========================================="
+echo ""
+
+# POST 1: Owner (Player 3) selecciona al target (Player 1)
+STEP1_REQUEST="{\"actionId\":$ACTION_ID,\"executorId\":$PLAYER3_ID,\"targetPlayerId\":$TARGET_PLAYER}"
+
+echo "Request: $STEP1_REQUEST"
+
+STEP1_RESPONSE=$(curl -s -X POST "$BASE_URL/game/$GAME_ID/detective-action" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: $PLAYER3_ID" \
+  -d "$STEP1_REQUEST")
+
+echo "Response:"
+echo "$STEP1_RESPONSE" | jq '.'
+
+# Verificar que fue exitoso pero incompleto
+STEP1_SUCCESS=$(echo "$STEP1_RESPONSE" | jq -r '.success')
+STEP1_COMPLETED=$(echo "$STEP1_RESPONSE" | jq -r '.completed')
+
+if [ "$STEP1_SUCCESS" != "true" ]; then
+    echo "❌ ERROR: detective-action step 1 fallo"
+    exit 1
+fi
+
+if [ "$STEP1_COMPLETED" != "false" ]; then
+    echo "❌ ERROR: Se esperaba completed=false en step 1"
+    exit 1
+fi
+
+echo "✅ Step 1 exitoso: Target seleccionado"
+echo ""
+echo "Next Action para el target:"
+echo "$STEP1_RESPONSE" | jq '.nextAction'
+
+echo ""
+echo "=========================================="
+echo "   POST 2: Target selecciona su secreto"
+echo "=========================================="
+echo ""
 
 # Consultar un secreto del target player para transferir
 TRANSFER_SECRET_ID=$(mysql -u $DB_USER -p$DB_PASSWORD $DB_NAME -se "
@@ -376,31 +425,37 @@ TRANSFER_SECRET_ID=$(mysql -u $DB_USER -p$DB_PASSWORD $DB_NAME -se "
 ")
 echo "Secret ID a transferir: $TRANSFER_SECRET_ID"
 
-echo ""
-echo "POST detective-action (Satterthwaite transfiere secreto):"
+# POST 2: Target (Player 1) selecciona su propio secreto
+STEP2_REQUEST="{\"actionId\":$ACTION_ID,\"executorId\":$TARGET_PLAYER,\"secretId\":$TRANSFER_SECRET_ID}"
 
-# Construir el request para detective-action
-# Satterthwaite con wildcard: el TARGET ejecuta y se transfiere el secreto al owner
-ACTION_REQUEST="{\"actionId\":$ACTION_ID,\"executorId\":$TARGET_PLAYER,\"targetPlayerId\":$TARGET_PLAYER,\"secretId\":$TRANSFER_SECRET_ID}"
+echo "Request: $STEP2_REQUEST"
 
-echo "Request: $ACTION_REQUEST"
-
-ACTION_RESPONSE=$(curl -s -X POST "$BASE_URL/game/$GAME_ID/detective-action" \
+STEP2_RESPONSE=$(curl -s -X POST "$BASE_URL/game/$GAME_ID/detective-action" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: $TARGET_PLAYER" \
-  -d "$ACTION_REQUEST")
+  -d "$STEP2_REQUEST")
 
 echo "Response:"
-echo "$ACTION_RESPONSE" | jq '.'
+echo "$STEP2_RESPONSE" | jq '.'
 
-# Verificar que fue exitoso
-ACTION_SUCCESS=$(echo "$ACTION_RESPONSE" | jq -r '.success')
-if [ "$ACTION_SUCCESS" != "true" ]; then
-    echo "❌ ERROR: detective-action fallo"
+# Verificar que fue exitoso y completo
+STEP2_SUCCESS=$(echo "$STEP2_RESPONSE" | jq -r '.success')
+STEP2_COMPLETED=$(echo "$STEP2_RESPONSE" | jq -r '.completed')
+
+if [ "$STEP2_SUCCESS" != "true" ]; then
+    echo "❌ ERROR: detective-action step 2 fallo"
     exit 1
 fi
 
-echo "✅ Detective action ejecutado exitosamente"
+if [ "$STEP2_COMPLETED" != "true" ]; then
+    echo "❌ ERROR: Se esperaba completed=true en step 2"
+    exit 1
+fi
+
+echo "✅ Step 2 exitoso: Acción completada"
+
+# Usar la respuesta del step 2 para mostrar efectos
+ACTION_RESPONSE=$STEP2_RESPONSE
 
 echo ""
 echo "Secretos transferidos:"

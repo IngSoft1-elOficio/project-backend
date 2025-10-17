@@ -558,18 +558,33 @@ def test_execute_satterthwaite_without_wildcard(db, setup_game_with_players, set
     db.commit()
     db.refresh(secret)
     
-    # Ejecutar acción (el TARGET ejecuta)
-    request = DetectiveActionRequest(
+    # PASO 1: Owner selecciona target
+    request_step1 = DetectiveActionRequest(
         actionId=action.id,
-        executorId=data["player2"].id,  # Target ejecuta
+        executorId=data["player1"].id,  # Owner ejecuta paso 1
         targetPlayerId=data["player2"].id,
+        secretId=None
+    )
+    
+    response_step1 = service.execute_detective_action(data["game"].id, request_step1)
+    
+    # Verificar paso 1: no completado
+    assert response_step1.success is True
+    assert response_step1.completed is False
+    
+    # PASO 2: Target selecciona secreto
+    request_step2 = DetectiveActionRequest(
+        actionId=action.id,
+        executorId=data["player2"].id,  # Target ejecuta paso 2
+        targetPlayerId=None,
         secretId=secret.id
     )
     
-    response = service.execute_detective_action(data["game"].id, request)
+    response = service.execute_detective_action(data["game"].id, request_step2)
     
-    # Verificar: solo revela, NO transfiere
+    # Verificar paso 2: solo revela, NO transfiere
     assert response.success is True
+    assert response.completed is True
     assert len(response.effects.revealed) == 1
     assert len(response.effects.hidden) == 0
     assert len(response.effects.transferred) == 0
@@ -643,18 +658,35 @@ def test_execute_satterthwaite_with_wildcard(db, setup_game_with_players, setup_
     db.commit()
     db.refresh(secret)
     
-    # Ejecutar acción (el TARGET ejecuta)
-    request = DetectiveActionRequest(
+    # PASO 1: Owner selecciona target
+    request_step1 = DetectiveActionRequest(
         actionId=action.id,
-        executorId=data["player2"].id,  # Target ejecuta
+        executorId=data["player1"].id,  # Owner ejecuta paso 1
         targetPlayerId=data["player2"].id,
+        secretId=None
+    )
+    
+    response_step1 = service.execute_detective_action(data["game"].id, request_step1)
+    
+    # Verificar paso 1: no completado, hay nextAction
+    assert response_step1.success is True
+    assert response_step1.completed is False
+    assert response_step1.nextAction is not None
+    assert len(response_step1.effects.revealed) == 0
+    
+    # PASO 2: Target selecciona secreto
+    request_step2 = DetectiveActionRequest(
+        actionId=action.id,
+        executorId=data["player2"].id,  # Target ejecuta paso 2
+        targetPlayerId=None,
         secretId=secret.id
     )
     
-    response = service.execute_detective_action(data["game"].id, request)
+    response = service.execute_detective_action(data["game"].id, request_step2)
     
-    # Verificar: revela Y transfiere
+    # Verificar paso 2: revela Y transfiere
     assert response.success is True
+    assert response.completed is True
     assert len(response.effects.revealed) == 1
     assert len(response.effects.hidden) == 0
     assert len(response.effects.transferred) == 1

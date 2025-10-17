@@ -83,43 +83,77 @@ async def execute_detective_action(
     ws_service = get_websocket_service()
     
     try:
-        action_type = "unknown"
-        action = "revealed"
-        secret_id = None
-        target_player_id = request.targetPlayerId if request.targetPlayerId else request.executorId
-        wildcard_used = False
-        
-        if response.effects.revealed:
+        if not response.completed:
+            # PASO 1: Owner seleccionó target, emitir eventos de target seleccionado
+            logger.info(f"Step 1: Target selected - {request.targetPlayerId}")
+            
+            # Determinar set_type desde nextAction metadata o desde la acción
+            set_type = "unknown"
+            if response.nextAction and response.nextAction.metadata:
+                # Aquí podrías agregar lógica para determinar el set_type
+                # Por ahora usamos un valor genérico
+                set_type = "detective"
+            
+            # Notificar a TODOS que se seleccionó un target
+            await ws_service.notificar_detective_target_selected(
+                room_id=room_id,
+                player_id=request.executorId,  # Owner que seleccionó
+                target_player_id=request.targetPlayerId,  # Target seleccionado
+                set_type=set_type
+            )
+            logger.info(f"Emitted detective_target_selected to room {room_id}")
+            
+            # Notificar SOLO al target que debe elegir su secreto
+            await ws_service.notificar_detective_action_request(
+                room_id=room_id,
+                target_player_id=request.targetPlayerId,
+                action_id=str(request.actionId),
+                requester_id=request.executorId,
+                set_type=set_type
+            )
+            logger.info(f"Emitted select_own_secret to player {request.targetPlayerId}")
+            
+        else:
+            # PASO 2 o acción de 1 paso: Acción completada
+            logger.info(f"Action completed - emitting results")
+            
+            action_type = "unknown"
             action = "revealed"
-            secret_id = response.effects.revealed[0].secretId
-            target_player_id = response.effects.revealed[0].playerId
-        elif response.effects.hidden:
-            action = "hidden"
-            secret_id = response.effects.hidden[0].secretId
-            target_player_id = response.effects.hidden[0].playerId
-        elif response.effects.transferred:
-            action = "transferred"
-            secret_id = response.effects.transferred[0].secretId
-            target_player_id = response.effects.transferred[0].fromPlayerId
-            wildcard_used = True
-        
-        await ws_service.notificar_detective_action_complete(
-            room_id=room_id,
-            action_type=action_type,
-            player_id=request.executorId,
-            target_player_id=target_player_id,
-            secret_id=secret_id,
-            action=action,
-            wildcard_used=wildcard_used
-        )
-        logger.info(f"Emitted detective_action_complete to room {room_id}")
-        
-        await ws_service.notificar_estado_partida(
-            room_id=room_id,
-            jugador_que_actuo=request.executorId,
-            game_state=game_state
-        )
-        logger.info(f"Emitted game state to room {room_id}")
+            secret_id = None
+            target_player_id = request.targetPlayerId if request.targetPlayerId else request.executorId
+            wildcard_used = False
+            
+            if response.effects.revealed:
+                action = "revealed"
+                secret_id = response.effects.revealed[0].secretId
+                target_player_id = response.effects.revealed[0].playerId
+            elif response.effects.hidden:
+                action = "hidden"
+                secret_id = response.effects.hidden[0].secretId
+                target_player_id = response.effects.hidden[0].playerId
+            elif response.effects.transferred:
+                action = "transferred"
+                secret_id = response.effects.transferred[0].secretId
+                target_player_id = response.effects.transferred[0].fromPlayerId
+                wildcard_used = True
+            
+            await ws_service.notificar_detective_action_complete(
+                room_id=room_id,
+                action_type=action_type,
+                player_id=request.executorId,
+                target_player_id=target_player_id,
+                secret_id=secret_id,
+                action=action,
+                wildcard_used=wildcard_used
+            )
+            logger.info(f"Emitted detective_action_complete to room {room_id}")
+            
+            await ws_service.notificar_estado_partida(
+                room_id=room_id,
+                jugador_que_actuo=request.executorId,
+                game_state=game_state
+            )
+            logger.info(f"Emitted game state to room {room_id}")
         
     except Exception as e:
         logger.error(f"Error emitting WebSocket events: {str(e)}")
