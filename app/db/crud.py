@@ -170,3 +170,167 @@ def check_card_qty(db: Session, card_id: int):
     ).count()
     
     return used_qty < card.qty
+
+# ------------------------------
+# PLAY DETECTIVE SET
+# ------------------------------
+
+def get_active_turn_for_player(db: Session, game_id: int, player_id: int):
+    """
+    Obtiene el turno IN_PROGRESS de un jugador en un juego.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: ID del jugador
+    
+    Returns:
+        Turn o None si no hay turno activo
+    """
+    return db.query(models.Turn).filter(
+        models.Turn.id_game == game_id,
+        models.Turn.player_id == player_id,
+        models.Turn.status == models.TurnStatus.IN_PROGRESS
+    ).first()
+
+
+def get_cards_in_hand_by_ids(db: Session, card_ids: list, player_id: int, game_id: int):
+    """
+    Obtiene cartas específicas que están en la mano de un jugador.
+    
+    Args:
+        db: Sesión de base de datos
+        card_ids: Lista de IDs de CardsXGame a buscar
+        player_id: ID del jugador dueño
+        game_id: ID del juego
+    
+    Returns:
+        Lista de CardsXGame que cumplen las condiciones
+    """
+    return db.query(models.CardsXGame).filter(
+        models.CardsXGame.id.in_(card_ids),
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.player_id == player_id,
+        models.CardsXGame.is_in == models.CardState.HAND
+    ).all()
+
+
+def get_max_position_by_state(db: Session, game_id: int, state: str):
+    """
+    Obtiene la posición máxima de cartas en un estado específico.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        state: CardState (ej: 'DETECTIVE_SET', 'DISCARD', etc)
+    
+    Returns:
+        int: Posición máxima encontrada, o 0 si no hay cartas en ese estado
+    """
+    result = db.query(models.CardsXGame.position).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.is_in == state
+    ).order_by(models.CardsXGame.position.desc()).first()
+    
+    return result[0] if result else 0
+
+
+def update_cards_state(db: Session, cards: list, new_state: str, position: int, hidden: bool):
+    """
+    Actualiza el estado de múltiples cartas.
+    
+    Args:
+        db: Sesión de base de datos
+        cards: Lista de objetos CardsXGame a actualizar
+        new_state: Nuevo CardState
+        position: Nueva posición
+        hidden: Nueva visibilidad
+    """
+    for card in cards:
+        card.is_in = new_state
+        card.position = position
+        card.hidden = hidden
+    db.commit()
+
+
+def create_action(db: Session, action_data: dict):
+    """
+    Crea una nueva acción en ActionsPerTurn.
+    
+    Args:
+        db: Sesión de base de datos
+        action_data: Diccionario con los campos de la acción
+    
+    Returns:
+        ActionsPerTurn creado con su ID
+    """
+    action = models.ActionsPerTurn(**action_data)
+    db.add(action)
+    db.flush()  # Para obtener el ID sin hacer commit completo
+    return action
+
+
+def is_player_in_social_disgrace(db: Session, player_id: int, game_id: int) -> bool:
+    """
+    Verifica si un jugador está en desgracia social.
+    Un jugador está en desgracia social cuando TODOS sus secretos están revelados (hidden=False).
+    
+    Args:
+        db: Sesión de base de datos
+        player_id: ID del jugador
+        game_id: ID del juego
+    
+    Returns:
+        True si el jugador está en desgracia social, False en caso contrario
+    """
+    # Obtener todos los secretos del jugador
+    secrets = db.query(models.CardsXGame).filter(
+        models.CardsXGame.player_id == player_id,
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.is_in == models.CardState.SECRET_SET
+    ).all()
+    
+    # Si no tiene secretos, no está en desgracia (caso edge)
+    if not secrets:
+        return False
+    
+    # Está en desgracia si TODOS los secretos están revelados (hidden=False)
+    return all(not secret.hidden for secret in secrets)
+
+
+def get_players_not_in_disgrace(db: Session, game_id: int, exclude_player_id: int = None):
+    """
+    Obtiene la lista de IDs de jugadores que NO están en desgracia social en un juego.
+    Opcionalmente excluye un jugador específico (típicamente el jugador activo).
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        exclude_player_id: ID del jugador a excluir (opcional)
+    
+    Returns:
+        Lista de IDs de jugadores disponibles para ser objetivo de acciones
+    """
+    # Obtener el juego y su room
+    game = db.query(models.Game).filter(models.Game.id == game_id).first()
+    if not game or not game.rooms:
+        return []
+    
+    room = game.rooms[0]
+    
+    # Obtener todos los jugadores del room
+    query = db.query(models.Player).filter(models.Player.id_room == room.id)
+    
+    # Excluir jugador si se especifica
+    if exclude_player_id is not None:
+        query = query.filter(models.Player.id != exclude_player_id)
+    
+    players = query.all()
+    
+    # Filtrar solo los que NO están en desgracia social
+    available_players = []
+    for player in players:
+        if not is_player_in_social_disgrace(db, player.id, game_id):
+            available_players.append(player.id)
+    
+    return available_players
