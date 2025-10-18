@@ -194,6 +194,23 @@ def get_active_turn_for_player(db: Session, game_id: int, player_id: int):
     ).first()
 
 
+def get_current_turn(db: Session, game_id: int):
+    """
+    Obtiene el turno actualmente en progreso para un juego.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+    
+    Returns:
+        Turn con status IN_PROGRESS o None si no hay turno activo
+    """
+    return db.query(models.Turn).filter(
+        models.Turn.id_game == game_id,
+        models.Turn.status == models.TurnStatus.IN_PROGRESS
+    ).first()
+
+
 def get_cards_in_hand_by_ids(db: Session, card_ids: list, player_id: int, game_id: int):
     """
     Obtiene cartas específicas que están en la mano de un jugador.
@@ -290,6 +307,109 @@ def create_action(db: Session, action_data: dict):
     db.add(action)
     db.flush()  # Para obtener el ID sin hacer commit completo
     return action
+
+
+def create_card_action(db: Session, game_id: int, turn_id: int, player_id: int, 
+                      action_type: str, source_pile: str, card_id: int = None,
+                      position: int = None, result: str = "SUCCESS", action_name: str = None,
+                      parent_action_id: int = None):
+    """
+    Crea una acción de carta (discard, draw, draft) en ActionsPerTurn.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        turn_id: ID del turno actual
+        player_id: ID del jugador que realiza la acción
+        action_type: Tipo de acción (DISCARD, DRAW)
+        source_pile: Pila origen/destino (DISCARD_PILE, DRAW_PILE, DRAFT_PILE)
+        card_id: ID de la carta involucrada (opcional)
+        position: Posición de la carta (opcional)
+        result: Resultado de la acción (por defecto SUCCESS)
+        action_name: Nombre de la acción (opcional, se auto-genera si no se provee)
+        parent_action_id: ID de la acción padre (opcional, para acciones hijas)
+    
+    Returns:
+        ActionsPerTurn creado
+    """
+    from datetime import datetime
+    
+    # Auto-generar action_name si no se provee
+    if not action_name:
+        if action_type == models.ActionType.DISCARD:
+            action_name = models.ActionName.END_TURN_DISCARD
+        elif action_type == models.ActionType.DRAW:
+            if source_pile == models.SourcePile.DRAW_PILE:
+                action_name = models.ActionName.DRAW_FROM_DECK
+            elif source_pile == models.SourcePile.DRAFT_PILE:
+                action_name = models.ActionName.DRAFT_PHASE
+            else:
+                action_name = "Draw"  # fallback genérico
+        else:
+            action_name = "Card Action"  # fallback genérico
+    
+    action_data = {
+        'id_game': game_id,
+        'turn_id': turn_id,
+        'player_id': player_id,
+        'action_time': datetime.now(),
+        'action_name': action_name,
+        'action_type': action_type,
+        'source_pile': source_pile,
+        'result': result
+    }
+    
+    # Agregar parent_action_id si se proporciona
+    if parent_action_id is not None:
+        action_data['parent_action_id'] = parent_action_id
+    
+    # Agregar campos opcionales si se proporcionan
+    if card_id:
+        if action_type == models.ActionType.DISCARD:
+            action_data['card_given_id'] = card_id
+        elif action_type == models.ActionType.DRAW:
+            action_data['card_received_id'] = card_id
+    
+    if position is not None:
+        action_data['position_card'] = position
+    
+    return create_action(db, action_data)
+
+
+def create_parent_card_action(db: Session, game_id: int, turn_id: int, player_id: int,
+                             action_type: str, action_name: str, source_pile: str = None):
+    """
+    Crea una acción padre para múltiples cartas (ej: descarte múltiple, robar múltiple).
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        turn_id: ID del turno actual
+        player_id: ID del jugador que realiza la acción
+        action_type: Tipo de acción (DISCARD, DRAW)
+        action_name: Nombre de la acción
+        source_pile: Pila origen/destino (opcional)
+    
+    Returns:
+        ActionsPerTurn padre creado
+    """
+    from datetime import datetime
+    
+    action_data = {
+        'id_game': game_id,
+        'turn_id': turn_id,
+        'player_id': player_id,
+        'action_time': datetime.now(),
+        'action_name': action_name,
+        'action_type': action_type,
+        'result': models.ActionResult.SUCCESS,
+        'parent_action_id': None  # Es acción padre
+    }
+    
+    if source_pile:
+        action_data['source_pile'] = source_pile
+    
+    return create_action(db, action_data)
 
 
 def is_player_in_social_disgrace(db: Session, player_id: int, game_id: int) -> bool:

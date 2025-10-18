@@ -18,12 +18,21 @@ def test_pick_card_from_draft_moves_and_replaces_topdeck(monkeypatch):
             self.name = name
             self.type = MagicMock(value=type_value)
             self.img_src = img_src
-    draft_card = MagicMock(id=1, is_in="DRAFT", position=2, player_id=None)
+    
+    # Mock turn
+    mock_turn = MagicMock(id=1)
+    
+    draft_card = MagicMock(id=1, id_card=10, id_game=1, is_in="DRAFT", position=2, player_id=None)
     draft_card.card = CardMock(1, "CardX", "event", "img.png")
-    deck_card = MagicMock(id=3, is_in="DECK", position=1)
+    deck_card = MagicMock(id=3, id_card=11, is_in="DECK", position=1)
     deck_card.card = CardMock(3, "CardY", "event", "img2.png")
     db = MagicMock()
     db.query().filter().first.side_effect = [draft_card, (5,), deck_card]
+    
+    # Mock CRUD functions
+    monkeypatch.setattr(draft_service, "get_current_turn", lambda db, game_id: mock_turn)
+    monkeypatch.setattr(draft_service, "create_card_action", lambda **kwargs: MagicMock(id=1))
+    
     result = draft_service.pick_card_from_draft(db, 1, 99)
     assert draft_card.is_in == "HAND"
     assert draft_card.player_id == 99
@@ -40,10 +49,19 @@ def test_pick_card_from_draft_no_topdeck(monkeypatch):
             self.name = name
             self.type = MagicMock(value=type_value)
             self.img_src = img_src
+    
+    # Mock turn
+    mock_turn = MagicMock(id=1)
+    
     db = MagicMock()
-    draft_card = MagicMock(id=1, is_in="DRAFT", position=1)
+    draft_card = MagicMock(id=1, id_card=10, id_game=1, is_in="DRAFT", position=1)
     draft_card.card = CardMock(1, "CardX", "event", "img.png")
     db.query().filter().first.side_effect = [draft_card, None, None]
+    
+    # Mock CRUD functions
+    monkeypatch.setattr(draft_service, "get_current_turn", lambda db, game_id: mock_turn)
+    monkeypatch.setattr(draft_service, "create_card_action", lambda **kwargs: MagicMock(id=1))
+    
     result = draft_service.pick_card_from_draft(db, 1, 5)
     assert result.id == 1
     assert result.name == "CardX"
