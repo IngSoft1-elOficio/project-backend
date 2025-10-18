@@ -1295,6 +1295,62 @@ Las cartas disponibles se pueden obtener del estado actual de la partida, que se
 - 409 conflict: estado del juego cambió
 - 500 server_error: error inesperado
 
+### 4.17 DELETE /api/game_join/{room_id}/leave
+
+**Descripción**: Endpoint para que el host cancele una partida NO iniciada (desvinculando a todos los jugadores de la sala) o para que un jugador no-host abandone la partida. El comportamiento depende de si quien invoca es el host o no.
+
+**Ruta**: DELETE /api/game_join/{room_id}/leave
+
+**Headers**:
+- HTTP_USER_ID: integer (ID del jugador que realiza la solicitud)
+
+**Path params**:
+- room_id: integer
+
+**Comportamiento / Flujo**
+- Validar que `room_id` existe y que `Room.status == "WAITING"`.
+- Identificar al jugador mediante `HTTP_USER_ID` y verificar que `Player.id_room == room_id`.
+- Si el jugador es el host (`Player.is_host == true`):
+    - Actualizar todos los jugadores de la sala: `UPDATE Player SET id_room = NULL WHERE id_room = room_id`.
+    - Eliminar la sala: `DELETE FROM Room WHERE id = room_id`.
+    - Emitir evento WS `game_cancelled` al room `game_{room_id}` con payload `{ "room_id": number, "timestamp": "ISO-8601" }`.
+- Si el jugador NO es el host:
+    - Actualizar solo al jugador solicitante: `UPDATE Player SET id_room = NULL WHERE id = player_id`.
+    - Emitir evento WS `player_left` al room `game_{room_id}` con payload `{ "player_id": number, "players_count": number, "timestamp": "ISO-8601" }`.
+
+**Validaciones / Errores**
+- 404 not_found: `room_id` no existe
+- 403 forbidden: el jugador no pertenece a esta sala (`Player.id_room != room_id`)
+- 409 conflict: `room.status != "WAITING"` (la partida ya inició o terminó)
+- 500 server_error: error inesperado
+
+**Responses**
+
+**200 OK**
+```json
+{
+    "success": true
+}
+```
+
+**Ejemplos**
+
+Host cancela la sala (curl):
+```bash
+curl -s -X DELETE "http://localhost:8000/api/game_join/42/leave" \
+    -H "Content-Type: application/json" \
+    -H "HTTP_USER_ID: 7" | jq .
+```
+
+Jugador no-host abandona la sala (curl):
+```bash
+curl -s -X DELETE "http://localhost:8000/api/game_join/42/leave" \
+    -H "Content-Type: application/json" \
+    -H "HTTP_USER_ID: 9" | jq .
+```
+
+
+
 ## 5. Eventos WebSocket
 
 Esta sección define el contrato de eventos de WebSocket para el juego. El backend publica eventos al room de cada partida. El cliente escucha y actualiza la UI y el estado global.
@@ -1330,7 +1386,12 @@ Esta sección define el contrato de eventos de WebSocket para el juego. El backe
 **player_left**
 - Emisor: servidor a todos en game_{room_id}
 - Uso: lobby en espera
-- Payload: `{ "player_id": number, "players_count": number }`
+ - Payload: `{ "player_id": number, "players_count": number, "timestamp": "ISO-8601" }`
+
+**game_cancelled**
+- Emisor: servidor a todos en game_{room_id}
+- Uso: notificar que la sala fue cancelada por el host antes de iniciar la partida
+- Payload: `{ "room_id": number, "timestamp": "ISO-8601" }`
 
 **game_started**
 - Emisor: servidor a todos en game_{room_id}
@@ -1516,3 +1577,4 @@ project-backend/
 
 - **2025-09-22**: Documentación Inicial de la API, basada en los tickets generados.
 - **2025-10-9**: Actualización de la documentación acorde a las nuevas implementaciones del Sprint 2. 
+- **2025-10-18**: Se agregó el endpoint DELETE `/api/game_join/{room_id}/leave` (host cancela / jugador abandona) y la documentación de los eventos WebSocket `game_cancelled` y `player_left`.
