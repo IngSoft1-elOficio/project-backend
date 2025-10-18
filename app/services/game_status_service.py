@@ -300,20 +300,51 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         models.CardsXGame.is_in == models.CardState.DETECTIVE_SET
     ).all()
 
-    # Group by player and detective (id_card)
-    detective_sets = defaultdict(lambda: defaultdict(int))
+    # Group by player and position
+    player_sets = defaultdict(lambda: defaultdict(list))
     for c in detective_set_cards:
         if c.player_id is None:
             continue
-        detective_sets[c.player_id][c.id_card] += 1
+        player_sets[c.player_id][c.position].append(c)
 
-    # Create one entry per detective set
-    for player_id, detectives in detective_sets.items():
-        for detective_card_id, count in detectives.items():
+    # Constants for special cards
+    WILDCARD_ID = 4
+    MIXABLE_IDS = {8, 10}
+
+    # Build the structured output
+    for player_id, positions in player_sets.items():
+        for pos, cards in positions.items():
+            card_ids = {c.id_card for c in cards}
+
+            # Determine set_type
+            if card_ids == MIXABLE_IDS:
+                set_type = "mixed"
+            elif len(card_ids) == 1:
+                # All cards are the same type
+                set_type = cards[0].card.name
+            elif WILDCARD_ID in card_ids:
+                # Contains a wildcard → optionally name by other card if clear
+                non_wildcards = [c for c in cards if c.id_card != WILDCARD_ID]
+                set_type = non_wildcards[0].card.name if non_wildcards else "wildcard"
+            else:
+                # Fallback case (multiple types that aren’t mixable or wildcard)
+                set_type = "mixed"
+
             sets.append({
                 "owner_id": player_id,
-                "set_type": detective_card_id,  # The detective's card ID
-                "count": count
+                "position": pos,
+                "set_type": set_type,
+                "cards": [
+                    {
+                        "id": c.id,
+                        "name": c.card.name,
+                        "description": c.card.description,
+                        "type": c.card.type.value,
+                        "img_src": c.card.img_src
+                    }
+                    for c in cards
+                ],
+                "count": len(cards)
             })
 
     print(f"SETS to SEND: {sets}")
