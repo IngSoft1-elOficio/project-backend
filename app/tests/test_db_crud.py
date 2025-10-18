@@ -455,6 +455,65 @@ def test_get_max_position_by_state(db):
     assert max_pos_hand == 0
 
 
+def test_get_max_position_for_player_by_state(db):
+    """Test obtener posición máxima para un jugador y estado específico"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Mesa 1", "status": "INGAME", "id_game": game.id})
+    player1 = crud.create_player(db, {
+        "name": "Player 1",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 1, 1),
+        "id_room": room.id,
+        "is_host": True
+    })
+    player2 = crud.create_player(db, {
+        "name": "Player 2",
+        "avatar_src": "avatar2.png",
+        "birthdate": date(2000, 2, 2),
+        "id_room": room.id,
+        "is_host": False
+    })
+    
+    # Sin cartas, debe retornar 0
+    max_pos = crud.get_max_position_for_player_by_state(
+        db, game.id, player1.id, models.CardState.DETECTIVE_SET
+    )
+    assert max_pos == 0
+    
+    # Crear cartas
+    card1 = models.Card(name="Carta 1", description="desc", type="DETECTIVE", img_src="img1.png", qty=1)
+    card2 = models.Card(name="Carta 2", description="desc", type="DETECTIVE", img_src="img2.png", qty=1)
+    card3 = models.Card(name="Carta 3", description="desc", type="DETECTIVE", img_src="img3.png", qty=1)
+    card4 = models.Card(name="Carta 4", description="desc", type="DETECTIVE", img_src="img4.png", qty=1)
+    db.add_all([card1, card2, card3, card4])
+    db.commit()
+    
+    # Player 1 tiene 2 sets: position 1 y 2
+    entry1 = models.CardsXGame(id_game=game.id, id_card=card1.id, player_id=player1.id, 
+                               is_in=models.CardState.DETECTIVE_SET, position=1, hidden=False)
+    entry2 = models.CardsXGame(id_game=game.id, id_card=card2.id, player_id=player1.id, 
+                               is_in=models.CardState.DETECTIVE_SET, position=2, hidden=False)
+    # Player 2 tiene 1 set: position 1
+    entry3 = models.CardsXGame(id_game=game.id, id_card=card3.id, player_id=player2.id, 
+                               is_in=models.CardState.DETECTIVE_SET, position=1, hidden=False)
+    entry4 = models.CardsXGame(id_game=game.id, id_card=card4.id, player_id=player2.id, 
+                               is_in=models.CardState.DETECTIVE_SET, position=1, hidden=False)
+    db.add_all([entry1, entry2, entry3, entry4])
+    db.commit()
+    
+    # Player 1 debe tener max position = 2
+    max_pos_p1 = crud.get_max_position_for_player_by_state(
+        db, game.id, player1.id, models.CardState.DETECTIVE_SET
+    )
+    assert max_pos_p1 == 2
+    
+    # Player 2 debe tener max position = 1 (no 2!)
+    max_pos_p2 = crud.get_max_position_for_player_by_state(
+        db, game.id, player2.id, models.CardState.DETECTIVE_SET
+    )
+    assert max_pos_p2 == 1
+
+
 def test_update_cards_state(db):
     """Test actualizar estado de múltiples cartas"""
     game = crud.create_game(db, {})
@@ -697,3 +756,348 @@ def test_get_players_not_in_disgrace(db):
     game_no_room = crud.create_game(db, {})
     empty_list = crud.get_players_not_in_disgrace(db, game_no_room.id)
     assert empty_list == []
+
+
+# ------------------------------
+# TESTS DETECTIVE ACTION
+# ------------------------------
+def test_get_action_by_id(db):
+    """Test obtener acción por ID"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Mesa 1", "status": "INGAME", "id_game": game.id})
+    player = crud.create_player(db, {
+        "name": "Ana",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 5, 10),
+        "id_room": room.id,
+        "is_host": True
+    })
+    
+    turn = models.Turn(
+        number=1,
+        id_game=game.id,
+        player_id=player.id,
+        status=models.TurnStatus.IN_PROGRESS
+    )
+    db.add(turn)
+    db.commit()
+    db.refresh(turn)
+    
+    # Crear acción
+    action_data = {
+        "id_game": game.id,
+        "turn_id": turn.id,
+        "player_id": player.id,
+        "action_name": "play_Poirot_set",
+        "action_type": models.ActionType.DETECTIVE_SET,
+        "result": models.ActionResult.PENDING
+    }
+    action = crud.create_action(db, action_data)
+    db.commit()
+    db.refresh(action)
+    
+    # Obtener por ID
+    fetched_action = crud.get_action_by_id(db, action.id)
+    assert fetched_action is not None
+    assert fetched_action.id == action.id
+    assert fetched_action.action_name == "play_Poirot_set"
+    assert fetched_action.result == models.ActionResult.PENDING
+    
+    # Acción inexistente
+    nonexistent = crud.get_action_by_id(db, 9999)
+    assert nonexistent is None
+
+
+def test_update_action_result(db):
+    """Test actualizar resultado de una acción"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Mesa 1", "status": "INGAME", "id_game": game.id})
+    player = crud.create_player(db, {
+        "name": "Ana",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 5, 10),
+        "id_room": room.id,
+        "is_host": True
+    })
+    
+    turn = models.Turn(
+        number=1,
+        id_game=game.id,
+        player_id=player.id,
+        status=models.TurnStatus.IN_PROGRESS
+    )
+    db.add(turn)
+    db.commit()
+    db.refresh(turn)
+    
+    # Crear acción PENDING
+    action_data = {
+        "id_game": game.id,
+        "turn_id": turn.id,
+        "player_id": player.id,
+        "action_name": "play_Marple_set",
+        "action_type": models.ActionType.DETECTIVE_SET,
+        "result": models.ActionResult.PENDING
+    }
+    action = crud.create_action(db, action_data)
+    db.commit()
+    db.refresh(action)
+    
+    assert action.result == models.ActionResult.PENDING
+    
+    # Actualizar a SUCCESS
+    updated_action = crud.update_action_result(db, action.id, models.ActionResult.SUCCESS)
+    db.commit()
+    db.refresh(updated_action)
+    
+    assert updated_action.result == models.ActionResult.SUCCESS
+    
+    # Actualizar a FAILED
+    updated_action_2 = crud.update_action_result(db, action.id, models.ActionResult.FAILED)
+    db.commit()
+    db.refresh(updated_action_2)
+    
+    assert updated_action_2.result == models.ActionResult.FAILED
+    
+    # Acción inexistente
+    nonexistent = crud.update_action_result(db, 9999, models.ActionResult.SUCCESS)
+    assert nonexistent is None
+
+
+def test_get_card_info_by_id(db):
+    """Test obtener información completa de una carta"""
+    # Crear carta
+    card = models.Card(
+        name="Hercule Poirot",
+        description="The famous detective",
+        type="DETECTIVE",
+        img_src="/assets/cards/poirot.png",
+        qty=3
+    )
+    db.add(card)
+    db.commit()
+    db.refresh(card)
+    
+    # Obtener info de la carta
+    card_info = crud.get_card_info_by_id(db, card.id)
+    
+    assert card_info is not None
+    assert card_info.id == card.id
+    assert card_info.name == "Hercule Poirot"
+    assert card_info.img_src == "/assets/cards/poirot.png"
+    assert card_info.type == "DETECTIVE"
+    assert card_info.qty == 3
+    
+    # Carta inexistente
+    nonexistent = crud.get_card_info_by_id(db, 9999)
+    assert nonexistent is None
+
+
+def test_update_card_visibility(db):
+    """Test actualizar visibilidad de una carta en CardsXGame"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Mesa 1", "status": "INGAME", "id_game": game.id})
+    player = crud.create_player(db, {
+        "name": "Ana",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 5, 10),
+        "id_room": room.id,
+        "is_host": True
+    })
+    
+    # Crear carta secreta oculta
+    secret_card = models.Card(
+        name="You are the Murderer!!",
+        description="Secret card",
+        type="SECRET",
+        img_src="/assets/cards/murderer.png",
+        qty=1
+    )
+    db.add(secret_card)
+    db.commit()
+    db.refresh(secret_card)
+    
+    secret_entry = models.CardsXGame(
+        id_game=game.id,
+        id_card=secret_card.id,
+        is_in=models.CardState.SECRET_SET,
+        position=1,
+        player_id=player.id,
+        hidden=True  # Oculto inicialmente
+    )
+    db.add(secret_entry)
+    db.commit()
+    db.refresh(secret_entry)
+    
+    assert secret_entry.hidden is True
+    
+    # Revelar el secreto (hidden=False)
+    updated_card = crud.update_card_visibility(db, secret_entry.id, hidden=False)
+    db.commit()
+    db.refresh(updated_card)
+    
+    assert updated_card.hidden is False
+    
+    # Ocultar de nuevo (hidden=True)
+    updated_card_2 = crud.update_card_visibility(db, secret_entry.id, hidden=True)
+    db.commit()
+    db.refresh(updated_card_2)
+    
+    assert updated_card_2.hidden is True
+    
+    # Carta inexistente
+    nonexistent = crud.update_card_visibility(db, 9999, hidden=False)
+    assert nonexistent is None
+
+
+def test_get_max_position_for_player_secrets(db):
+    """Test obtener posición máxima de secretos de un jugador"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Mesa 1", "status": "INGAME", "id_game": game.id})
+    player1 = crud.create_player(db, {
+        "name": "Ana",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 5, 10),
+        "id_room": room.id,
+        "is_host": True
+    })
+    player2 = crud.create_player(db, {
+        "name": "Luis",
+        "avatar_src": "avatar2.png",
+        "birthdate": date(1999, 3, 1),
+        "id_room": room.id,
+        "is_host": False
+    })
+    
+    # Caso 1: Jugador sin secretos (posición máxima = 0)
+    max_pos = crud.get_max_position_for_player_secrets(db, game.id, player1.id)
+    assert max_pos == 0
+    
+    # Crear secretos
+    secrets = [
+        models.Card(name=f"Secret {i}", description="desc", type="SECRET", img_src=f"img{i}.png", qty=1)
+        for i in range(1, 6)
+    ]
+    db.add_all(secrets)
+    db.commit()
+    
+    # Player1: 3 secretos en posiciones 1, 2, 5
+    for i, pos in enumerate([1, 2, 5]):
+        db.refresh(secrets[i])
+        entry = models.CardsXGame(
+            id_game=game.id,
+            id_card=secrets[i].id,
+            is_in=models.CardState.SECRET_SET,
+            position=pos,
+            player_id=player1.id,
+            hidden=True
+        )
+        db.add(entry)
+    
+    # Player2: 2 secretos en posiciones 1, 2
+    for i in range(3, 5):
+        db.refresh(secrets[i])
+        entry = models.CardsXGame(
+            id_game=game.id,
+            id_card=secrets[i].id,
+            is_in=models.CardState.SECRET_SET,
+            position=i-2,
+            player_id=player2.id,
+            hidden=True
+        )
+        db.add(entry)
+    
+    db.commit()
+    
+    # Caso 2: Player1 debe tener posición máxima 5
+    max_pos_p1 = crud.get_max_position_for_player_secrets(db, game.id, player1.id)
+    assert max_pos_p1 == 5
+    
+    # Caso 3: Player2 debe tener posición máxima 2
+    max_pos_p2 = crud.get_max_position_for_player_secrets(db, game.id, player2.id)
+    assert max_pos_p2 == 2
+
+
+def test_transfer_secret_card(db):
+    """Test transferir un secreto de un jugador a otro"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Mesa 1", "status": "INGAME", "id_game": game.id})
+    player1 = crud.create_player(db, {
+        "name": "Ana",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 5, 10),
+        "id_room": room.id,
+        "is_host": True
+    })
+    player2 = crud.create_player(db, {
+        "name": "Luis",
+        "avatar_src": "avatar2.png",
+        "birthdate": date(1999, 3, 1),
+        "id_room": room.id,
+        "is_host": False
+    })
+    
+    # Crear secreto de player1
+    secret_card = models.Card(
+        name="You are the Murderer!!",
+        description="Secret card",
+        type="SECRET",
+        img_src="/assets/cards/murderer.png",
+        qty=1
+    )
+    db.add(secret_card)
+    db.commit()
+    db.refresh(secret_card)
+    
+    secret_entry = models.CardsXGame(
+        id_game=game.id,
+        id_card=secret_card.id,
+        is_in=models.CardState.SECRET_SET,
+        position=2,
+        player_id=player1.id,
+        hidden=False  # Revelado
+    )
+    db.add(secret_entry)
+    db.commit()
+    db.refresh(secret_entry)
+    
+    # Verificar estado inicial
+    assert secret_entry.player_id == player1.id
+    assert secret_entry.position == 2
+    assert secret_entry.hidden is False
+    
+    # Transferir a player2 en posición 5, face-down
+    transferred = crud.transfer_secret_card(
+        db=db,
+        card_id=secret_entry.id,
+        new_player_id=player2.id,
+        new_position=5,
+        face_down=True
+    )
+    db.commit()
+    db.refresh(transferred)
+    
+    # Verificar que cambió de dueño, posición y visibilidad
+    assert transferred.player_id == player2.id
+    assert transferred.position == 5
+    assert transferred.hidden is True  # Face-down
+    assert transferred.is_in == models.CardState.SECRET_SET  # Sigue siendo secreto
+    
+    # Transferir de vuelta a player1, face-up
+    transferred_back = crud.transfer_secret_card(
+        db=db,
+        card_id=secret_entry.id,
+        new_player_id=player1.id,
+        new_position=3,
+        face_down=False
+    )
+    db.commit()
+    db.refresh(transferred_back)
+    
+    assert transferred_back.player_id == player1.id
+    assert transferred_back.position == 3
+    assert transferred_back.hidden is False  # Face-up
+    
+    # Carta inexistente
+    nonexistent = crud.transfer_secret_card(db, 9999, player2.id, 1, True)
+    assert nonexistent is None

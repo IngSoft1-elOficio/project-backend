@@ -83,8 +83,8 @@ INSERT INTO cardsXgame (id_game, id_card, is_in, position, player_id, hidden) VA
 
 -- t_detective2: Cartas mixtas
 INSERT INTO cardsXgame (id_game, id_card, is_in, position, player_id, hidden) VALUES
-(@game_id, 9, 'HAND', 1, @player2_id, TRUE),   -- Lady Eileen Brent
-(@game_id, 10, 'HAND', 2, @player2_id, TRUE),  -- Tuppence Beresford
+(@game_id, 7, 'HAND', 1, @player2_id, TRUE),   -- Parker Pyne
+(@game_id, 7, 'HAND', 2, @player2_id, TRUE),   -- Parker Pyne
 (@game_id, 11, 'HAND', 3, @player2_id, TRUE),  -- Hercule Poirot
 (@game_id, 13, 'HAND', 4, @player2_id, TRUE),  -- Not so fast
 (@game_id, 14, 'HAND', 5, @player2_id, TRUE),  -- Blackmailed
@@ -92,8 +92,8 @@ INSERT INTO cardsXgame (id_game, id_card, is_in, position, player_id, hidden) VA
 
 -- t_detective3: Cartas mixtas
 INSERT INTO cardsXgame (id_game, id_card, is_in, position, player_id, hidden) VALUES
-(@game_id, 13, 'HAND', 1, @player3_id, TRUE),  -- Not so fast
-(@game_id, 6, 'HAND', 2, @player3_id, TRUE),   -- Miss Marple
+(@game_id, 12, 'HAND', 1, @player3_id, TRUE),  -- Satterthwaite
+(@game_id, 4, 'HAND', 2, @player3_id, TRUE),   -- Harley Quin
 (@game_id, 7, 'HAND', 3, @player3_id, TRUE),   -- Parker Pyne
 (@game_id, 22, 'HAND', 4, @player3_id, TRUE),  -- Early train (event)
 (@game_id, 23, 'HAND', 5, @player3_id, TRUE),  -- Cards off table (event)
