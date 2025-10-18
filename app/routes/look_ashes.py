@@ -26,7 +26,7 @@ def get_db():
 async def play_look_into_ashes(
     room_id: int,
     request: LookAshesPlayRequest,
-    http_user_id: int = Header(...),
+    http_user_id: int = Header(..., alias="http-user-id"),  # Fixed: Use alias for kebab-case
     db: Session = Depends(get_db)
 ):
     """
@@ -38,7 +38,7 @@ async def play_look_into_ashes(
         available_cards: Top 5 cards from discard (private info)
     """
 
-    print(f"Revceived room: {room_id} player: {http_user_id} card: {request.card_id}")
+    print(f"Received room: {room_id} player: {http_user_id} card: {request.card_id}")
     
     # Get room and game
     room = crud.get_room_by_id(db, room_id)
@@ -51,10 +51,6 @@ async def play_look_into_ashes(
     game = crud.get_game_by_id(db, room.id_game)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
-    
-    # Validar turno
-    if game.player_turn_id != http_user_id:
-        raise HTTPException(status_code=403, detail="not_your_turn")
     
     # Validate it's player's turn
     if game.player_turn_id != http_user_id:
@@ -95,30 +91,35 @@ async def play_look_into_ashes(
             detail="Discard pile is empty"
         )
     
+    # Get current turn using crud helper
+    current_turn = crud.get_current_turn(db, room.id_game)
+    
+    if not current_turn:
+        raise HTTPException(
+            status_code=400,
+            detail="No active turn found"
+        )
+    
     # Move event card to DISCARD immediately
-    # Get max position in discard
-    max_discard_pos = db.query(models.CardsXGame).filter(
-        models.CardsXGame.id_game == room.id_game,
-        models.CardsXGame.is_in == models.CardState.DISCARD
-    ).count()
+    max_discard_pos = crud.get_max_position_by_state(db, room.id_game, models.CardState.DISCARD)
     
     event_card.is_in = models.CardState.DISCARD
     event_card.player_id = None
     event_card.position = max_discard_pos + 1
     event_card.hidden = False  # Events in discard are visible
     
-    # Create action in ActionsPerTurn (Action 1: Play event)
-    action = models.ActionsPerTurn(
-        id_game=room.id_game,
-        turn_id=game.player_turn_id if game.player_turn_id else None,
-        player_id=http_user_id,
-        action_name="Look into the ashes",
-        action_type=models.ActionType.EVENT_CARD,
-        result=models.ActionResult.SUCCESS,  # Immediately successful
-        selected_card_id=request.card_id  # The event card played
-    )
+    # Create action in ActionsPerTurn using crud helper
+    action_data = {
+        'id_game': room.id_game,
+        'turn_id': current_turn.id,
+        'player_id': http_user_id,
+        'action_name': models.ActionName.LOOK_INTO_THE_ASHES.value,
+        'action_type': models.ActionType.EVENT_CARD,
+        'result': models.ActionResult.SUCCESS,
+        'selected_card_id': event_card.id  # CardsXGame.id of the event card
+    }
     
-    db.add(action)
+    action = crud.create_action(db, action_data)
     db.commit()
     db.refresh(action)
     
@@ -159,7 +160,7 @@ async def play_look_into_ashes(
 async def select_card_from_ashes(
     room_id: int,
     request: LookAshesSelectRequest,
-    http_user_id: int = Header(...),
+    http_user_id: int = Header(..., alias="http-user-id"),  # Fixed: Use alias
     db: Session = Depends(get_db)
 ):
     """
@@ -179,19 +180,20 @@ async def select_card_from_ashes(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     
-    # Get parent action
-    parent_action = db.query(models.ActionsPerTurn).filter(
-        models.ActionsPerTurn.id == request.action_id,
-        models.ActionsPerTurn.id_game == room.id_game,
-        models.ActionsPerTurn.player_id == http_user_id,
-        models.ActionsPerTurn.action_name == "Look into the ashes",
-        models.ActionsPerTurn.result == models.ActionResult.SUCCESS
-    ).first()
+    # Get parent action using crud helper
+    parent_action = crud.get_action_by_id(db, request.action_id)
     
     if not parent_action:
+        raise HTTPException(status_code=404, detail="Parent action not found")
+    
+    # Validate parent action belongs to this player and game
+    if (parent_action.id_game != room.id_game or 
+        parent_action.player_id != http_user_id or
+        parent_action.action_name != models.ActionName.LOOK_INTO_THE_ASHES.value or
+        parent_action.result != models.ActionResult.SUCCESS):
         raise HTTPException(
-            status_code=404, 
-            detail="Parent action not found"
+            status_code=400,
+            detail="Invalid parent action"
         )
     
     # Check action is not too old (10 minutes timeout)
@@ -215,12 +217,12 @@ async def select_card_from_ashes(
         )
     
     # Validate selected card is within top 5 of discard
-    top_5_ids = [
-        c.id for c in db.query(models.CardsXGame).filter(
-            models.CardsXGame.id_game == room.id_game,
-            models.CardsXGame.is_in == models.CardState.DISCARD
-        ).order_by(models.CardsXGame.position.desc()).limit(5).all()
-    ]
+    top_5 = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == room.id_game,
+        models.CardsXGame.is_in == models.CardState.DISCARD
+    ).order_by(models.CardsXGame.position.desc()).limit(5).all()
+    
+    top_5_ids = [c.id for c in top_5]
     
     if request.selected_card_id not in top_5_ids:
         raise HTTPException(
@@ -231,7 +233,7 @@ async def select_card_from_ashes(
     # Store old position before moving
     old_position = selected_card.position
     
-    # Get current hand size to determine new position
+    # Get current hand size using crud helper
     hand_count = db.query(models.CardsXGame).filter(
         models.CardsXGame.player_id == http_user_id,
         models.CardsXGame.id_game == room.id_game,
@@ -244,21 +246,21 @@ async def select_card_from_ashes(
     selected_card.position = hand_count  # Add to end of hand
     selected_card.hidden = True
     
-    # Create completion action (Action 2: Draw from discard)
-    completion_action = models.ActionsPerTurn(
-        id_game=room.id_game,
-        turn_id=parent_action.turn_id,
-        player_id=http_user_id,
-        action_type=models.ActionType.DRAW,
-        action_name=None,  # Not needed for DRAW type
-        result=models.ActionResult.SUCCESS,
-        parent_action_id=parent_action.id,  # Link to parent event
-        selected_card_id=request.selected_card_id,  # Card taken
-        source_pile=models.SourcePile.DISCARD,
-        position_card=old_position  # Original position in discard
-    )
+    # Create completion action using crud helper
+    completion_action_data = {
+        'id_game': room.id_game,
+        'turn_id': parent_action.turn_id,
+        'player_id': http_user_id,
+        'action_type': models.ActionType.DRAW,
+        'action_name': None,  # Not needed for DRAW type
+        'result': models.ActionResult.SUCCESS,
+        'parent_action_id': parent_action.id,
+        'card_received_id': selected_card.id,  # Card taken
+        'source_pile': models.SourcePile.DISCARD_PILE,
+        'position_card': old_position
+    }
     
-    db.add(completion_action)
+    completion_action = crud.create_action(db, completion_action_data)
     db.commit()
     
     # Notify all players (WITHOUT revealing which card was taken)
