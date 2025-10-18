@@ -235,6 +235,28 @@ def get_max_position_by_state(db: Session, game_id: int, state: str):
     return result[0] if result else 0
 
 
+def get_max_position_for_player_by_state(db: Session, game_id: int, player_id: int, state: str):
+    """
+    Obtiene la posición máxima de cartas de un jugador en un estado específico.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: ID del jugador
+        state: CardState (ej: 'DETECTIVE_SET', 'SECRET_SET', etc)
+    
+    Returns:
+        int: Posición máxima encontrada, o 0 si no hay cartas
+    """
+    result = db.query(models.CardsXGame.position).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.player_id == player_id,
+        models.CardsXGame.is_in == state
+    ).order_by(models.CardsXGame.position.desc()).first()
+    
+    return result[0] if result else 0
+
+
 def update_cards_state(db: Session, cards: list, new_state: str, position: int, hidden: bool):
     """
     Actualiza el estado de múltiples cartas.
@@ -334,3 +356,124 @@ def get_players_not_in_disgrace(db: Session, game_id: int, exclude_player_id: in
             available_players.append(player.id)
     
     return available_players
+
+
+# ------------------------------
+# DETECTIVE ACTION
+# ------------------------------
+
+def get_action_by_id(db: Session, action_id: int):
+    """
+    Obtiene una acción por su ID.
+    
+    Args:
+        db: Sesión de base de datos
+        action_id: ID de la acción en ActionsPerTurn
+    
+    Returns:
+        ActionsPerTurn o None si no existe
+    """
+    return db.query(models.ActionsPerTurn).filter(
+        models.ActionsPerTurn.id == action_id
+    ).first()
+
+
+def update_action_result(db: Session, action_id: int, result: models.ActionResult):
+    """
+    Actualiza el resultado de una acción.
+    
+    Args:
+        db: Sesión de base de datos
+        action_id: ID de la acción
+        result: Nuevo ActionResult (SUCCESS, FAILED, CANCELLED, etc)
+    """
+    action = get_action_by_id(db, action_id)
+    if action:
+        action.result = result
+        db.flush()
+    return action
+
+
+def get_card_info_by_id(db: Session, card_id: int):
+    """
+    Obtiene información completa de una carta desde la tabla Card.
+    
+    Args:
+        db: Sesión de base de datos
+        card_id: ID de la carta en Card.id
+    
+    Returns:
+        Card con name, img_src, etc.
+    """
+    return db.query(models.Card).filter(models.Card.id == card_id).first()
+
+
+def update_card_visibility(db: Session, cards_x_game_id: int, hidden: bool):
+    """
+    Actualiza la visibilidad (hidden) de una carta en CardsXGame.
+    
+    Args:
+        db: Sesión de base de datos
+        cards_x_game_id: ID en CardsXGame.id 
+        hidden: True para ocultar, False para revelar
+    """
+    card = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id == cards_x_game_id
+    ).first()
+    
+    if card:
+        card.hidden = hidden
+        db.flush()
+    
+    return card
+
+
+def get_max_position_for_player_secrets(db: Session, game_id: int, player_id: int):
+    """
+    Obtiene la posición máxima de secretos de un jugador específico.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: ID del jugador
+    
+    Returns:
+        int: Posición máxima encontrada, o 0 si no tiene secretos
+    """
+    result = db.query(models.CardsXGame.position).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.player_id == player_id,
+        models.CardsXGame.is_in == models.CardState.SECRET_SET
+    ).order_by(models.CardsXGame.position.desc()).first()
+    
+    return result[0] if result else 0
+
+
+def transfer_secret_card(
+    db: Session,
+    card_id: int,
+    new_player_id: int,
+    new_position: int,
+    face_down: bool
+):
+    """
+    Transfiere una carta de secreto a otro jugador.
+    
+    Args:
+        db: Sesión de base de datos
+        card_id: ID en CardsXGame.id
+        new_player_id: ID del nuevo dueño
+        new_position: Nueva posición en el SECRET_SET del nuevo dueño
+        face_down: Si la carta se transfiere oculta (True) o revelada (False)
+    """
+    card = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id == card_id
+    ).first()
+    
+    if card:
+        card.player_id = new_player_id
+        card.position = new_position
+        card.hidden = face_down
+        db.flush()
+    
+    return card
