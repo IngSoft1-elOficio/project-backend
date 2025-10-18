@@ -7,7 +7,7 @@ from ..schemas.leave_game import LeaveGameResponse
 
 router = APIRouter()
 
-# Conexión a la DB
+# Conexion a la DB
 def get_db():
     db = SessionLocal()
     try:
@@ -24,27 +24,27 @@ async def leave_game(
     """
     Endpoint para cancelar o abandonar una partida en estado WAITING.
     
-    - Si el solicitante es HOST: cancela la partida (desvincular todos los jugadores y eliminar sala)
-    - Si el solicitante NO es HOST: abandona la partida (solo se desvincula el)
+    - Si es host: cancela la partida -> saca jugadores y elimina sala
+    - Si no es host: jugador abandona la sala
     
     Returns:
-        200 OK si la acción se completa exitosamente
+        200 ok si la accion se completa exitosamente
         404 si room_id no existe
         403 si el jugador no pertenece a esta sala
         409 si la partida ya fue iniciada (status != WAITING)
     """
-    print(f"🚪 DELETE /leave received: room_id={room_id}, user_id={http_user_id}")
+    print(f"Cancelar o abandonar recibido: room_id={room_id}, user_id={http_user_id}")
     
     try:
         result = await leave_game_logic(db, room_id, http_user_id)
         
         if not result["success"]:
             if result["error"] == "room_not_found":
-                raise HTTPException(status_code=404, detail="Room not found")
+                raise HTTPException(status_code=404, detail="Sala no encontrada")
             elif result["error"] == "player_not_in_room":
-                raise HTTPException(status_code=403, detail="Player does not belong to this room")
+                raise HTTPException(status_code=403, detail="El jugador no pertence a esta sala")
             elif result["error"] == "game_already_started":
-                raise HTTPException(status_code=409, detail="Game already started or finished")
+                raise HTTPException(status_code=409, detail="La partida ya ha iniciado")
             else:
                 raise HTTPException(status_code=400, detail=result["error"])
         
@@ -57,5 +57,5 @@ async def leave_game(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error in leave_game: {e}")
+        print(f"Error al abandonar la partida: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

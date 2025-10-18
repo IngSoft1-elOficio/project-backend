@@ -8,29 +8,29 @@ logger = logging.getLogger(__name__)
 
 async def leave_game_logic(db: Session, room_id: int, user_id: int):
     """
-    Lógica para cancelar (host) o abandonar (jugador) una partida en estado WAITING.
+    Logica para cancelar (host) o abandonar (jugador) una partida en estado WAITING
     
     Args:
         db: Database session
-        room_id: ID de la sala
-        user_id: ID del jugador que hace la solicitud
+        room_id: id de la sala
+        user_id: id del jugador que hace la solicitud
         
     Returns:
         Dict con success, error, message, is_host
     """
     try:
-        # 1. Validar que la sala existe
+        # Validar que la sala existe
         room = db.query(Room).filter(Room.id == room_id).first()
         if not room:
             logger.warning(f"Room {room_id} not found")
             return {"success": False, "error": "room_not_found"}
         
-        # 2. Validar que la sala está en estado WAITING
+        # Validar que la sala esta en estado WAITING
         if room.status != RoomStatus.WAITING:
             logger.warning(f"Room {room_id} is not in WAITING state (status: {room.status})")
             return {"success": False, "error": "game_already_started"}
         
-        # 3. Buscar al jugador y validar que pertenece a la sala
+        # Buscar al jugador y validar que pertenece a la sala
         player = db.query(Player).filter(
             Player.id == user_id,
             Player.id_room == room_id
@@ -42,12 +42,12 @@ async def leave_game_logic(db: Session, room_id: int, user_id: int):
         
         ws_service = get_websocket_service()
         
-        # 4. Determinar si es host o jugador regular
+        # Determinar si es host o jugador
         if player.is_host:
-            # HOST: Cancelar partida completa
+            # Caso host => Cancelar partida para todos
             logger.info(f"Host {user_id} is cancelling room {room_id}")
             
-            # Desvincular TODOS los jugadores de la sala
+            # Sacar a todos los jugadores de la sala
             db.query(Player).filter(Player.id_room == room_id).update(
                 {"id_room": None, "is_host": False, "order": None},
                 synchronize_session=False
@@ -59,7 +59,7 @@ async def leave_game_logic(db: Session, room_id: int, user_id: int):
             
             logger.info(f"Room {room_id} deleted and all players unlinked")
             
-            # Emitir evento WebSocket: game_cancelled
+            # Emitir evento por WebSocket: game_cancelled
             await ws_service.notificar_game_cancelled(
                 room_id=room_id,
                 timestamp=datetime.now().isoformat()
@@ -73,10 +73,10 @@ async def leave_game_logic(db: Session, room_id: int, user_id: int):
             }
         
         else:
-            # JUGADOR: Abandonar partida
+            # Caso jugador => Abandonar sala
             logger.info(f"Player {user_id} is leaving room {room_id}")
             
-            # Desvincular solo al jugador que abandona
+            # Sacar solo al jugador
             player.id_room = None
             player.order = None
             db.commit()
@@ -99,7 +99,7 @@ async def leave_game_logic(db: Session, room_id: int, user_id: int):
 
             logger.info(f"Player {user_id} left room {room_id}. {players_count} players remaining")
             
-            # Emitir evento WebSocket: player_left
+            # Emitir evento por WebSocket: player_left
             await ws_service.notificar_player_left(
                 room_id=room_id,
                 player_id=user_id,

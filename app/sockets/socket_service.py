@@ -396,8 +396,8 @@ class WebSocketService:
         timestamp: str
     ):
         """
-        Notify all players that the game was cancelled by the host
-        All players should be redirected to lobby
+        Notificar a todos los jugadores que la partida fue cancelada
+        Todos los jugadores deben ser redirigidos a /lobby
         """
         mensaje = {
             "type": "game_cancelled",
@@ -416,8 +416,8 @@ class WebSocketService:
         timestamp: str
     ):
         """
-        Notify all players that someone left the lobby
-        Update player list in the waiting room
+        Notificar a todos los jugadores que alguien abandono la sala
+        Actualizar la lista de jugadores en la sala
         """
         mensaje = {
             "type": "player_left",
