@@ -7,6 +7,7 @@ from app.schemas.game_status_schema import (
     STATUS_MAPPING
 )
 from typing import Dict, Any, Optional, List
+from collections import defaultdict
 
 def get_game_status_service(db: Session, game_id: int, user_id: int) -> GameStateView:
     """Recupera el estado de la partida y valida la pertenencia del usuario."""
@@ -299,19 +300,54 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         models.CardsXGame.is_in == models.CardState.DETECTIVE_SET
     ).all()
 
-    # Count manually by player
-    detective_counts = {}
+    # Group by player and position
+    player_sets = defaultdict(lambda: defaultdict(list))
     for c in detective_set_cards:
         if c.player_id is None:
             continue
-        detective_counts[c.player_id] = detective_counts.get(c.player_id, 0) + 1
+        player_sets[c.player_id][c.position].append(c)
 
-    for player_id, count in detective_counts.items():
-        sets.append({
-            "owner_id": player_id,
-            "set_type": models.CardState.DETECTIVE_SET.value,
-            "count": count
-        })
+    # Constants for special cards
+    WILDCARD_ID = 4
+    MIXABLE_IDS = {8, 10}
+
+    # Build the structured output
+    for player_id, positions in player_sets.items():
+        for pos, cards in positions.items():
+            card_ids = {c.id_card for c in cards}
+
+            # Determine set_type
+            if card_ids == MIXABLE_IDS:
+                set_type = "mixed"
+            elif len(card_ids) == 1:
+                # All cards are the same type
+                set_type = cards[0].card.name
+            elif WILDCARD_ID in card_ids:
+                # Contains a wildcard → optionally name by other card if clear
+                non_wildcards = [c for c in cards if c.id_card != WILDCARD_ID]
+                set_type = non_wildcards[0].card.name if non_wildcards else "wildcard"
+            else:
+                # Fallback case (multiple types that aren’t mixable or wildcard)
+                set_type = "mixed"
+
+            sets.append({
+                "owner_id": player_id,
+                "position": pos,
+                "set_type": set_type,
+                "cards": [
+                    {
+                        "id": c.id,
+                        "name": c.card.name,
+                        "description": c.card.description,
+                        "type": c.card.type.value,
+                        "img_src": c.card.img_src
+                    }
+                    for c in cards
+                ],
+                "count": len(cards)
+            })
+
+    print(f"SETS to SEND: {sets}")
 
     # Build private states for each player
     estados_privados = {}
