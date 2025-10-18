@@ -58,6 +58,14 @@ async def descartar_cartas(db, game, user_id, ordered_player_cards):
         
         print(f"  Carta {card.id_card} → posición {card.position}")
     
+    # Capture card IDs before commit (to avoid ObjectDeletedError)
+    discarded_card_ids = [c.id_card for c in discarded]
+    
     db.commit()
-    print(f"✅ Total descartado en orden: {[c.id_card for c in discarded]}")
+    
+    # Refresh objects to make them accessible after commit
+    for card in discarded:
+        db.refresh(card)
+    
+    print(f"✅ Total descartado en orden: {discarded_card_ids}")
     return discarded
