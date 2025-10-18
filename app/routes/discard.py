@@ -74,11 +74,14 @@ async def discard_cards(
     # reordenar cartas para mantener orden de descarte
     card_dict = {card.id: card for card in player_cards}
     ordered_player_cards = [card_dict[card_id] for card_id in card_ids]
-    print(f"✅ Orden corregido: {[c.id_card for c in ordered_player_cards]}")  # LOG 3
+    ordered_card_ids = [c.id_card for c in ordered_player_cards]
+    print(f"✅ Orden corregido: {ordered_card_ids}")  # LOG 3
 
     # descartar
     discarded = await descartar_cartas(db, game, user_id, ordered_player_cards)
-    print(f"📤 Orden final descartado: {[c.id_card for c in discarded]}")  # LOG 4
+    # Capture card IDs BEFORE any other operation that might detach objects
+    discarded_card_ids = [c.id_card for c in discarded]
+    print(f"📤 Orden final descartado: {discarded_card_ids}")  # LOG 4
   
 
     # Check deck count

@@ -278,6 +278,7 @@ async def test_take_from_deck_deck_empty(mock_robar, mock_ws):
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "deck_empty"
 
+
 @pytest.mark.asyncio
 @patch('app.routes.take_deck.get_websocket_service')
 @patch('app.routes.take_deck.robar_cartas_del_mazo')

@@ -42,6 +42,7 @@ class WebSocketService:
             "turno_actual": game_state.get("turno_actual"),
             "jugadores": game_state.get("jugadores", []),
             "mazos": game_state.get("mazos", {}),
+            "sets": game_state.get("sets", []),
             "timestamp": datetime.now().isoformat()
         }
         
