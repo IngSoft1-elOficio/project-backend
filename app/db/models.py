@@ -79,6 +79,14 @@ class ActionName(str, enum.Enum):
     BUNDLE_BRENT = "Lady Eileen Bundle Brent"
     ARIADNE_OLIVER = "Ariadne Oliver"
     
+    # Detective set actions
+    PLAY_POIROT_SET = "play_Poirot_set"
+    PLAY_MARPLE_SET = "play_Marple_set"
+    PLAY_SATTERTHWAITE_SET = "play_Satterthwaite_set"
+    PLAY_PYNE_SET = "play_Pyne_set"
+    PLAY_EILEENBRENT_SET = "play_EileenBrent_set"
+    PLAY_BERESFORD_SET = "play_Beresford_set"
+    
     # Detective effects
     MISS_MARPLE_EFFECT = "Miss Marple Effect"
     HERCULE_POIROT_EFFECT = "Hercule Poirot Effect"
