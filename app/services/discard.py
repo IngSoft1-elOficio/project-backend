@@ -43,7 +43,7 @@ async def descartar_cartas(db, game, user_id, ordered_player_cards):
         card.position = next_pos + i  # Ahora i empieza en 0, así que está bien
         discarded.append(card)
         
-        # Log individual discard action
+        # Log individual discard action with parent reference
         create_card_action(
             db=db,
             game_id=game.id,
@@ -53,7 +53,8 @@ async def descartar_cartas(db, game, user_id, ordered_player_cards):
             source_pile=SourcePile.DISCARD_PILE,
             card_id=card.id_card,
             position=card.position,
-            result=ActionResult.SUCCESS
+            result=ActionResult.SUCCESS,
+            parent_action_id=parent_action.id
         )
         
         print(f"  Carta {card.id_card} → posición {card.position}")

@@ -32,7 +32,7 @@ async def robar_cartas_del_mazo(db, game, user_id, cantidad):
     )
     
     for card in drawn:
-        # Log individual draw action before modifying the card
+        # Log individual draw action before modifying the card with parent reference
         create_card_action(
             db=db,
             game_id=game.id,
@@ -42,7 +42,8 @@ async def robar_cartas_del_mazo(db, game, user_id, cantidad):
             source_pile=SourcePile.DRAW_PILE,
             card_id=card.id_card,
             position=card.position,
-            result=ActionResult.SUCCESS
+            result=ActionResult.SUCCESS,
+            parent_action_id=parent_action.id
         )
         
         # resetear dueño

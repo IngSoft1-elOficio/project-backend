@@ -311,7 +311,8 @@ def create_action(db: Session, action_data: dict):
 
 def create_card_action(db: Session, game_id: int, turn_id: int, player_id: int, 
                       action_type: str, source_pile: str, card_id: int = None,
-                      position: int = None, result: str = "SUCCESS", action_name: str = None):
+                      position: int = None, result: str = "SUCCESS", action_name: str = None,
+                      parent_action_id: int = None):
     """
     Crea una acción de carta (discard, draw, draft) en ActionsPerTurn.
     
@@ -326,6 +327,7 @@ def create_card_action(db: Session, game_id: int, turn_id: int, player_id: int,
         position: Posición de la carta (opcional)
         result: Resultado de la acción (por defecto SUCCESS)
         action_name: Nombre de la acción (opcional, se auto-genera si no se provee)
+        parent_action_id: ID de la acción padre (opcional, para acciones hijas)
     
     Returns:
         ActionsPerTurn creado
@@ -356,6 +358,10 @@ def create_card_action(db: Session, game_id: int, turn_id: int, player_id: int,
         'source_pile': source_pile,
         'result': result
     }
+    
+    # Agregar parent_action_id si se proporciona
+    if parent_action_id is not None:
+        action_data['parent_action_id'] = parent_action_id
     
     # Agregar campos opcionales si se proporcionan
     if card_id:
