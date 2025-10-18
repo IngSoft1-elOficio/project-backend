@@ -64,6 +64,61 @@ class ActionType(str, enum.Enum):
     STEAL_SET = "STEAL_SET"
 
 
+class ActionName(str, enum.Enum):
+    # Discard/Draw actions
+    END_TURN_DISCARD = "End Turn Discard"
+    DRAW_FROM_DECK = "Draw from Deck"
+    DRAFT_PHASE = "Draft Phase"
+    
+    # Detective cards
+    MISS_MARPLE = "Miss Marple"
+    HERCULE_POIROT = "Hercule Poirot"
+    MR_SATTERTHWAITE = "Mr Satterthwaite + Wildcard"
+    PARKER_PYNE = "Parker Pyne"
+    TOMMY_TUPPENCE = "Tommy + Tuppence Beresford"
+    BUNDLE_BRENT = "Lady Eileen Bundle Brent"
+    ARIADNE_OLIVER = "Ariadne Oliver"
+    
+    # Detective set actions
+    PLAY_POIROT_SET = "play_Poirot_set"
+    PLAY_MARPLE_SET = "play_Marple_set"
+    PLAY_SATTERTHWAITE_SET = "play_Satterthwaite_set"
+    PLAY_PYNE_SET = "play_Pyne_set"
+    PLAY_EILEENBRENT_SET = "play_EileenBrent_set"
+    PLAY_BERESFORD_SET = "play_Beresford_set"
+    
+    # Detective effects
+    MISS_MARPLE_EFFECT = "Miss Marple Effect"
+    HERCULE_POIROT_EFFECT = "Hercule Poirot Effect"
+    SATTERTHWAITE_SPECIAL_EFFECT = "Satterthwaite Special Effect"
+    PARKER_PYNE_EFFECT = "Parker Pyne Effect"
+    TOMMY_TUPPENCE_EFFECT = "Tommy/Tuppence Effect"
+    ARIADNE_OLIVER_EFFECT = "Ariadne Oliver Effect"
+    
+    # Event cards
+    CARD_TRADE = "Card Trade"
+    DEAD_CARD_FOLLY = "Dead Card Folly"
+    POINT_YOUR_SUSPICIONS = "Point Your Suspicions"
+    ANOTHER_VICTIM = "Another Victim"
+    LOOK_INTO_THE_ASHES = "Look Into the Ashes"
+    AND_THEN_THERE_WAS_ONE_MORE = "And Then There Was One More"
+    DELAY_THE_MURDERERS_ESCAPE = "Delay the Murderers Escape"
+    EARLY_TRAIN_TO_PADDINGTON = "Early Train to Paddington"
+    CARDS_OFF_THE_TABLE = "Cards Off the Table"
+    
+    # Event effects
+    POINT_YOUR_SUSPICIONS_EFFECT = "Point Your Suspicions Effect"
+    
+    # Instant cards
+    NOT_SO_FAST = "Not so Fast"
+    
+    # Devious cards
+    BLACKMAILED = "Blackmailed"
+    BLACKMAILED_EFFECT = "Blackmailed Effect"
+    SOCIAL_FAUX_PAS = "Social Faux Pas"
+    SOCIAL_FAUX_PAS_EFFECT = "Social Faux Pas Effect"
+
+
 class ActionResult(str, enum.Enum):
     PENDING = "PENDING"
     SUCCESS = "SUCCESS"
