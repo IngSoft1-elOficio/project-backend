@@ -332,13 +332,13 @@ def test_get_next_set_position_first_set():
     service = DetectiveSetService(mock_db)
     
     with patch('app.services.detective_set_service.crud') as mock_crud:
-        mock_crud.get_max_position_by_state.return_value = 0
+        mock_crud.get_max_position_for_player_by_state.return_value = 0
         
-        position = service._get_next_set_position(game_id=1)
+        position = service._get_next_set_position(game_id=1, player_id=10)
         
         assert position == 1
-        mock_crud.get_max_position_by_state.assert_called_once_with(
-            mock_db, 1, CardState.DETECTIVE_SET
+        mock_crud.get_max_position_for_player_by_state.assert_called_once_with(
+            mock_db, 1, 10, CardState.DETECTIVE_SET
         )
 
 
@@ -348,9 +348,9 @@ def test_get_next_set_position_second_set():
     service = DetectiveSetService(mock_db)
     
     with patch('app.services.detective_set_service.crud') as mock_crud:
-        mock_crud.get_max_position_by_state.return_value = 1
+        mock_crud.get_max_position_for_player_by_state.return_value = 1
         
-        position = service._get_next_set_position(game_id=1)
+        position = service._get_next_set_position(game_id=1, player_id=10)
         
         assert position == 2
 

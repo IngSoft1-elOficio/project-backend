@@ -66,8 +66,8 @@ class DetectiveSetService:
         # 6. Validar que el set es válido según el tipo
         self._validate_set_combination(cards, request.setType, request.hasWildcard)
         
-        # 7. Obtener la siguiente posición de set disponible
-        next_position = self._get_next_set_position(game_id)
+        # 7. Obtener la siguiente posición de set disponible para este jugador
+        next_position = self._get_next_set_position(game_id, player.id)
         
         # 8. Actualizar las cartas a DETECTIVE_SET (moverlas de HAND)
         self._move_cards_to_detective_set(cards, next_position)
@@ -270,9 +270,11 @@ class DetectiveSetService:
                 detail=f"Set contains invalid cards for {set_type.value}"
             )
     
-    def _get_next_set_position(self, game_id: int) -> int:
-        """Obtiene la siguiente posición disponible para un nuevo set"""
-        max_position = crud.get_max_position_by_state(self.db, game_id, CardState.DETECTIVE_SET)
+    def _get_next_set_position(self, game_id: int, player_id: int) -> int:
+        """Obtiene la siguiente posición disponible para un nuevo set del jugador"""
+        max_position = crud.get_max_position_for_player_by_state(
+            self.db, game_id, player_id, CardState.DETECTIVE_SET
+        )
         return max_position + 1
     
     def _move_cards_to_detective_set(self, cards: List[CardsXGame], position: int):
