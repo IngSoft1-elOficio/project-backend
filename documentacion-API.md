@@ -1295,11 +1295,11 @@ Las cartas disponibles se pueden obtener del estado actual de la partida, que se
 - 409 conflict: estado del juego cambió
 - 500 server_error: error inesperado
 
-### 4.17 POST /api/game_join/{room_id}/leave
+### 4.17 DELETE /api/game_join/{room_id}/leave
 
 **Descripción**: Endpoint para que el host cancele una partida NO iniciada (desvinculando a todos los jugadores de la sala) o para que un jugador no-host abandone la partida. El comportamiento depende de si quien invoca es el host o no.
 
-**Ruta**: POST /api/game_join/{room_id}/leave
+**Ruta**: DELETE /api/game_join/{room_id}/leave
 
 **Headers**:
 - HTTP_USER_ID: integer (ID del jugador que realiza la solicitud)
@@ -1337,14 +1337,14 @@ Las cartas disponibles se pueden obtener del estado actual de la partida, que se
 
 Host cancela la sala (curl):
 ```bash
-curl -s -X POST "http://localhost:8000/api/game_join/42/leave" \
+curl -s -X DELETE "http://localhost:8000/api/game_join/42/leave" \
     -H "Content-Type: application/json" \
     -H "HTTP_USER_ID: 7" | jq .
 ```
 
 Jugador no-host abandona la sala (curl):
 ```bash
-curl -s -X POST "http://localhost:8000/api/game_join/42/leave" \
+curl -s -X DELETE "http://localhost:8000/api/game_join/42/leave" \
     -H "Content-Type: application/json" \
     -H "HTTP_USER_ID: 9" | jq .
 ```
@@ -1577,4 +1577,4 @@ project-backend/
 
 - **2025-09-22**: Documentación Inicial de la API, basada en los tickets generados.
 - **2025-10-9**: Actualización de la documentación acorde a las nuevas implementaciones del Sprint 2. 
-- **2025-10-18**: Se agregó el endpoint POST `/api/game_join/{room_id}/leave` (host cancela / jugador abandona) y la documentación de los eventos WebSocket `game_cancelled` y `player_left`.
+- **2025-10-18**: Se agregó el endpoint DELETE `/api/game_join/{room_id}/leave` (host cancela / jugador abandona) y la documentación de los eventos WebSocket `game_cancelled` y `player_left`.
