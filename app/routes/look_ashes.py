@@ -37,6 +37,8 @@ async def play_look_into_ashes(
         action_id: ActionsPerTurn.id to use in next step
         available_cards: Top 5 cards from discard (private info)
     """
+
+    print(f"Revceived room: {room_id} player: {http_user_id} card: {request.card_id}")
     
     # Get room and game
     room = crud.get_room_by_id(db, room_id)
@@ -50,10 +52,9 @@ async def play_look_into_ashes(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     
-    # Get player
-    player = crud.get_player_by_id(db, http_user_id)
-    if not player:
-        raise HTTPException(status_code=404, detail="Player not found")
+    # Validar turno
+    if game.player_turn_id != http_user_id:
+        raise HTTPException(status_code=403, detail="not_your_turn")
     
     # Validate it's player's turn
     if game.player_turn_id != http_user_id:
@@ -94,12 +95,6 @@ async def play_look_into_ashes(
             detail="Discard pile is empty"
         )
     
-    # Get current turn
-    current_turn = db.query(models.Turn).filter(
-        models.Turn.id_game == room.id_game,
-        models.Turn.is_active == True
-    ).first() if hasattr(models, 'Turn') else None
-    
     # Move event card to DISCARD immediately
     # Get max position in discard
     max_discard_pos = db.query(models.CardsXGame).filter(
@@ -115,7 +110,7 @@ async def play_look_into_ashes(
     # Create action in ActionsPerTurn (Action 1: Play event)
     action = models.ActionsPerTurn(
         id_game=room.id_game,
-        turn_id=current_turn.id if current_turn else None,
+        turn_id=game.player_turn_id if game.player_turn_id else None,
         player_id=http_user_id,
         action_name="Look into the ashes",
         action_type=models.ActionType.EVENT_CARD,
