@@ -386,6 +386,49 @@ class WebSocketService:
         await self.ws_manager.emit_to_room(room_id, "turn_finished", mensaje)
         logger.info(f"✅ Emitted turn_finished to room {room_id}: Player {player_id}")
 
+    # ----------------------
+    # | LOBBY - LEAVE GAME |
+    # ----------------------
+    
+    async def notificar_game_cancelled(
+        self,
+        room_id: int,
+        timestamp: str
+    ):
+        """
+        Notify all players that the game was cancelled by the host
+        All players should be redirected to lobby
+        """
+        mensaje = {
+            "type": "game_cancelled",
+            "room_id": room_id,
+            "timestamp": timestamp
+        }
+        await self.ws_manager.emit_to_room(room_id, "game_cancelled", mensaje)
+        logger.info(f"Emitted game_cancelled to room {room_id}")
+    
+    async def notificar_player_left(
+        self,
+        room_id: int,
+        player_id: int,
+        players_count: int,
+        players: list,
+        timestamp: str
+    ):
+        """
+        Notify all players that someone left the lobby
+        Update player list in the waiting room
+        """
+        mensaje = {
+            "type": "player_left",
+            "player_id": player_id,
+            "players_count": players_count,
+            "players": players,
+            "timestamp": timestamp
+        }
+        await self.ws_manager.emit_to_room(room_id, "player_left", mensaje)
+        logger.info(f"Emitted player_left to room {room_id}: player {player_id} left")
+
 _websocket_service = None
 
 def get_websocket_service() -> WebSocketService:
