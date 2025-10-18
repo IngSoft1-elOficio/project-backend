@@ -65,8 +65,8 @@ async def descartar_cartas(db, game, user_id, ordered_player_cards):
     db.commit()
     
     # Refresh objects to make them accessible after commit
-    # for card in discarded:
-    #    db.refresh(card)
+    for card in discarded:
+        db.refresh(card)
     
     print(f"✅ Total descartado en orden: {discarded_card_ids}")
     return discarded

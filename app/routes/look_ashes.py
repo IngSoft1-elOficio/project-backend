@@ -274,7 +274,7 @@ async def select_card_from_ashes(
     
     # Update full game state
     game_state = build_complete_game_state(db, room.id_game)
-    await ws_service.notificar_estado_completo(
+    await ws_service.notificar_estado_partida(
         room_id=room_id,
         game_state=game_state,
         partida_finalizada=False
