@@ -5,10 +5,10 @@ from app.db.database import SessionLocal
 from pydantic import BaseModel
 from app.db.models import (
     Game, Room, CardsXGame, CardState, Player, ActionsPerTurn, 
-    ActionType, ActionResult, Turn, TurnStatus, Card
+    ActionType, ActionResult, Turn, TurnStatus, Card, ActionName
 )
 from app.sockets.socket_service import get_websocket_service
-from app.services.game_service import obtener_estado_completo_juego
+from app.services.game_status_service import build_complete_game_state
 from datetime import datetime
 import logging
 
@@ -282,7 +282,7 @@ async def another_victim(
         )
         logger.info(f"se emitio fin de accion")
         
-        game_state = obtener_estado_completo_juego(db, game.id)
+        game_state = build_complete_game_state(db, game.id)
         
         await ws_service.notificar_estado_publico(
             room_id=room_id,
