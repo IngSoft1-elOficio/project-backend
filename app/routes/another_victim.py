@@ -13,7 +13,7 @@ from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/game", tags=["Games"])
+router = APIRouter(prefix="/api/game", tags=["Games"])
 
 def get_db():
     db = SessionLocal()
