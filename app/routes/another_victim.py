@@ -155,7 +155,7 @@ async def another_victim(
             CardsXGame.player_id == actor.id,
             CardsXGame.id_game == game.id,
             CardsXGame.is_in == CardState.HAND,
-            Card.id == 13
+            Card.name == "Another Victim"
         ).first()
 
         if another_victim_card:
@@ -177,7 +177,7 @@ async def another_victim(
             id_game=game.id,
             turn_id=current_turn.id,
             player_id=actor.id,
-            action_name="Another Victim",
+            action_name=ActionName.ANOTHER_VICTIM,
             action_type=ActionType.EVENT_CARD,
             result=ActionResult.SUCCESS,
             action_time=datetime.now(),
