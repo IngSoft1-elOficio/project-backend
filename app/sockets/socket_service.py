@@ -43,6 +43,7 @@ class WebSocketService:
             "jugadores": game_state.get("jugadores", []),
             "mazos": game_state.get("mazos", {}),
             "sets": game_state.get("sets", []),
+            "secretsFromAllPlayers": game_state.get("secretsFromAllPlayers", []),
             "timestamp": datetime.now().isoformat()
         }
         
