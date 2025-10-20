@@ -47,9 +47,8 @@ async def leave_game_logic(db: Session, room_id: int, user_id: int):
             # Caso host => Cancelar partida para todos
             logger.info(f"Host {user_id} is cancelling room {room_id}")
             
-            # Sacar a todos los jugadores de la sala
-            db.query(Player).filter(Player.id_room == room_id).update(
-                {"id_room": None, "is_host": False, "order": None},
+            # Eliminar todos los jugadores de la sala de la BD
+            db.query(Player).filter(Player.id_room == room_id).delete(
                 synchronize_session=False
             )
             
@@ -57,7 +56,7 @@ async def leave_game_logic(db: Session, room_id: int, user_id: int):
             db.delete(room)
             db.commit()
             
-            logger.info(f"Room {room_id} deleted and all players unlinked")
+            logger.info(f"Room {room_id} deleted and all players removed from DB")
             
             # Emitir evento por WebSocket: game_cancelled
             await ws_service.notificar_game_cancelled(
@@ -76,12 +75,11 @@ async def leave_game_logic(db: Session, room_id: int, user_id: int):
             # Caso jugador => Abandonar sala
             logger.info(f"Player {user_id} is leaving room {room_id}")
             
-            # Sacar solo al jugador
-            player.id_room = None
-            player.order = None
+            # Eliminar al jugador de la BD (no solo desvincular)
+            db.delete(player)
             db.commit()
             
-            # Obtener jugadores restantes para enviar en el evento
+            # Obtener jugadores restantes DESPUÉS de eliminar
             remaining_players = db.query(Player).filter(Player.id_room == room_id).all()
             players_count = len(remaining_players)
             

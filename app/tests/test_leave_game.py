@@ -101,10 +101,15 @@ class TestLeaveGameEndpoint:
         test_db.add_all([host, player2])
         test_db.commit()
 
+        # Guardar IDs ANTES de ejecutar
+        host_id = host.id
+        player2_id = player2.id
+        room_id = room.id
+
         # Host cancela
         response = client.delete(
-            f"/game_join/{room.id}/leave",
-            headers={"HTTP_USER_ID": str(host.id)}
+            f"/game_join/{room_id}/leave",
+            headers={"HTTP_USER_ID": str(host_id)}
         )
 
         assert response.status_code == 200
@@ -113,15 +118,14 @@ class TestLeaveGameEndpoint:
         assert data["is_host"] is True
 
         # Verificar que la sala fue eliminada
-        test_db.expire_all()
-        room_check = test_db.query(Room).filter(Room.id == room.id).first()
+        room_check = test_db.query(Room).filter(Room.id == room_id).first()
         assert room_check is None
 
-        # Verificar que todos los jugadores fueron desvinculados
-        host_check = test_db.query(Player).filter(Player.id == host.id).first()
-        player2_check = test_db.query(Player).filter(Player.id == player2.id).first()
-        assert host_check.id_room is None
-        assert player2_check.id_room is None
+        # Verificar que todos los jugadores fueron eliminados completamente
+        host_check = test_db.query(Player).filter(Player.id == host_id).first()
+        player2_check = test_db.query(Player).filter(Player.id == player2_id).first()
+        assert host_check is None
+        assert player2_check is None
 
     def test_player_leaves_game_successfully(self, test_db):
         """Test: Jugador abandona la partida"""
@@ -173,11 +177,12 @@ class TestLeaveGameEndpoint:
         room_check = test_db.query(Room).filter(Room.id == room.id).first()
         assert room_check is not None
 
-        # Verificar que solo player2 fue desvinculado
+        # Verificar que solo player2 fue eliminado completamente
         host_check = test_db.query(Player).filter(Player.id == host.id).first()
         player2_check = test_db.query(Player).filter(Player.id == player2.id).first()
+        assert host_check is not None
         assert host_check.id_room == room.id
-        assert player2_check.id_room is None
+        assert player2_check is None  # Eliminado completamente
 
     def test_room_not_found(self, test_db):
         """Test: Error 404 cuando la sala no existe"""
@@ -271,7 +276,7 @@ class TestLeaveGameEndpoint:
         assert response.status_code == 422
 
     def test_multiple_players_all_unlinked_when_host_cancels(self, test_db):
-        """Test: Todos los jugadores son desvinculados cuando el host cancela"""
+        """Test: Todos los jugadores son eliminados cuando el host cancela"""
         # Crear sala
         room = Room(
             name="Test Room",
@@ -298,16 +303,20 @@ class TestLeaveGameEndpoint:
         test_db.add_all(players)
         test_db.commit()
 
+        # Guardar IDs ANTES de ejecutar
+        player_ids = [p.id for p in players]
+        host_id = player_ids[0]
+        room_id = room.id
+
         # Host cancela
         response = client.delete(
-            f"/game_join/{room.id}/leave",
-            headers={"HTTP_USER_ID": str(players[0].id)}
+            f"/game_join/{room_id}/leave",
+            headers={"HTTP_USER_ID": str(host_id)}
         )
 
         assert response.status_code == 200
 
-        # Verificar que TODOS fueron desvinculados
-        test_db.expire_all()
-        for player in players:
-            player_check = test_db.query(Player).filter(Player.id == player.id).first()
-            assert player_check.id_room is None
+        # Verificar que TODOS fueron eliminados completamente
+        for player_id in player_ids:
+            player_check = test_db.query(Player).filter(Player.id == player_id).first()
+            assert player_check is None

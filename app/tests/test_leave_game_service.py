@@ -84,8 +84,12 @@ class TestLeaveGameService:
         test_db.add_all([host, player2])
         test_db.commit()
 
+        # Guardar IDs ANTES de ejecutar servicio
+        host_id = host.id
+        player2_id = player2.id
+
         # Ejecutar servicio
-        result = await leave_game_logic(test_db, room.id, host.id)
+        result = await leave_game_logic(test_db, room.id, host_id)
 
         # Verificar resultado
         assert result["success"] is True
@@ -94,17 +98,14 @@ class TestLeaveGameService:
         assert result["error"] is None
 
         # Verificar que la sala fue eliminada
-        test_db.expire_all()
         room_check = test_db.query(Room).filter(Room.id == room.id).first()
         assert room_check is None
 
-        # Verificar que todos los jugadores fueron desvinculados
-        host_check = test_db.query(Player).filter(Player.id == host.id).first()
-        player2_check = test_db.query(Player).filter(Player.id == player2.id).first()
-        assert host_check.id_room is None
-        assert host_check.is_host is False
-        assert host_check.order is None
-        assert player2_check.id_room is None
+        # Verificar que todos los jugadores fueron eliminados
+        host_check = test_db.query(Player).filter(Player.id == host_id).first()
+        player2_check = test_db.query(Player).filter(Player.id == player2_id).first()
+        assert host_check is None
+        assert player2_check is None
 
         # Verificar que se llamó al WebSocket
         mock_websocket.notificar_game_cancelled.assert_called_once()
@@ -149,6 +150,10 @@ class TestLeaveGameService:
         # Ejecutar servicio
         result = await leave_game_logic(test_db, room.id, player2.id)
 
+        # Guardar IDs antes de que los objetos se vuelvan inválidos
+        host_id = host.id
+        player2_id = player2.id
+
         # Verificar resultado
         assert result["success"] is True
         assert result["is_host"] is False
@@ -160,18 +165,18 @@ class TestLeaveGameService:
         room_check = test_db.query(Room).filter(Room.id == room.id).first()
         assert room_check is not None
 
-        # Verificar que solo player2 fue desvinculado
-        host_check = test_db.query(Player).filter(Player.id == host.id).first()
-        player2_check = test_db.query(Player).filter(Player.id == player2.id).first()
+        # Verificar que solo player2 fue eliminado (no solo desvinculado)
+        host_check = test_db.query(Player).filter(Player.id == host_id).first()
+        player2_check = test_db.query(Player).filter(Player.id == player2_id).first()
+        assert host_check is not None
         assert host_check.id_room == room.id
-        assert player2_check.id_room is None
-        assert player2_check.order is None
+        assert player2_check is None  # Eliminado completamente
 
         # Verificar que se llamó al WebSocket
         mock_websocket.notificar_player_left.assert_called_once()
         call_args = mock_websocket.notificar_player_left.call_args
         assert call_args.kwargs['room_id'] == room.id
-        assert call_args.kwargs['player_id'] == player2.id
+        assert call_args.kwargs['player_id'] == player2_id
         assert call_args.kwargs['players_count'] == 1
         assert len(call_args.kwargs['players']) == 1
 
@@ -246,7 +251,7 @@ class TestLeaveGameService:
 
     @pytest.mark.asyncio
     async def test_multiple_players_all_unlinked_when_host_cancels(self, test_db, mock_websocket):
-        """Test: Todos los jugadores son desvinculados cuando host cancela"""
+        """Test: Todos los jugadores son eliminados cuando host cancela"""
         # Crear sala
         room = Room(
             name="Test Room",
@@ -275,19 +280,20 @@ class TestLeaveGameService:
         test_db.add_all(players)
         test_db.commit()
 
+        # Guardar IDs ANTES de ejecutar servicio
+        player_ids = [p.id for p in players]
+        host_id = player_ids[0]
+
         # Host cancela
-        result = await leave_game_logic(test_db, room.id, players[0].id)
+        result = await leave_game_logic(test_db, room.id, host_id)
 
         assert result["success"] is True
         assert result["is_host"] is True
 
-        # Verificar que TODOS fueron desvinculados
-        test_db.expire_all()
-        for player in players:
-            p_check = test_db.query(Player).filter(Player.id == player.id).first()
-            assert p_check.id_room is None
-            assert p_check.is_host is False
-            assert p_check.order is None
+        # Verificar que TODOS fueron eliminados completamente
+        for player_id in player_ids:
+            p_check = test_db.query(Player).filter(Player.id == player_id).first()
+            assert p_check is None
 
     @pytest.mark.asyncio
     async def test_player_leaves_updates_remaining_players_list(self, test_db, mock_websocket):
@@ -318,6 +324,11 @@ class TestLeaveGameService:
         # P2 abandona
         result = await leave_game_logic(test_db, room.id, p2.id)
 
+        # Guardar IDs antes de operaciones futuras
+        host_id = host.id
+        p3_id = p3.id
+        p2_id = p2.id
+
         assert result["success"] is True
 
         # Verificar datos enviados al WebSocket
@@ -328,10 +339,15 @@ class TestLeaveGameService:
         assert call_args.kwargs['players_count'] == 2
         
         # Verificar estructura de jugadores
-        player_ids = [p['id'] for p in players_data]
-        assert host.id in player_ids
-        assert p3.id in player_ids
-        assert p2.id not in player_ids
+        player_ids_in_data = [p['id'] for p in players_data]
+        assert host_id in player_ids_in_data
+        assert p3_id in player_ids_in_data
+        assert p2_id not in player_ids_in_data
+        
+        # Verificar que p2 fue eliminado completamente de la BD
+        test_db.expire_all()
+        p2_check = test_db.query(Player).filter(Player.id == p2_id).first()
+        assert p2_check is None
 
     @pytest.mark.asyncio
     async def test_handles_exception_gracefully(self, test_db, mock_websocket):
@@ -405,14 +421,18 @@ class TestLeaveGameService:
         test_db.add_all([host, player])
         test_db.commit()
 
-        await leave_game_logic(test_db, room.id, player.id)
+        # Guardar IDs
+        host_id = host.id
+        player_id = player.id
+
+        await leave_game_logic(test_db, room.id, player_id)
 
         # Verificar llamada
         mock_websocket.notificar_player_left.assert_called_once()
         call_kwargs = mock_websocket.notificar_player_left.call_args.kwargs
         
         assert call_kwargs['room_id'] == room.id
-        assert call_kwargs['player_id'] == player.id
+        assert call_kwargs['player_id'] == player_id
         assert call_kwargs['players_count'] == 1
         assert isinstance(call_kwargs['players'], list)
         assert 'timestamp' in call_kwargs
