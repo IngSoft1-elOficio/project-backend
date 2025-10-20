@@ -46,49 +46,67 @@ async def finalizar_partida(game_id: int, winners: List[Dict]):
         logger.info(f"Persistida partida {game_id} como terminada.")
     finally:
         db.close()
-
-async def procesar_ultima_carta(game_id: int, room_id: int, carta: str, game_state: Dict, jugador_que_actuo: int):
-    """Procesa la última carta del mazo y detecta el final de la partida"""
+async def procesar_ultima_carta(game_id: int, room_id: int, game_state: Dict):
+    """Procesa la última carta del draft y detecta el final de la partida"""
     from app.sockets.socket_service import get_websocket_service
-    
-    deck_remaining = game_state.get("mazos", {}).get("deck", 0)
 
-    if deck_remaining == 0:
-        logger.info(f"Fin de mazo alcanzado en game_id {game_id}")
+    # Check draft count from build_complete_game_state structure
+    draft_count = game_state.get("mazos", {}).get("deck", {}).get("draft", [])
+
+    if not draft_count:
+        logger.info(f"Fin de draft alcanzado en game_id {game_id}")
         winners: List[Dict] = []
+        
+        # Find murderer and accomplice from estados_privados
+        estados_privados = game_state.get("estados_privados", {})
+        jugadores_info = game_state.get("jugadores", [])
 
-        if carta == "Murder Escapes":
-            # Find murderer and accomplice from secretos
-            for player_id, secrets in game_state.get("secretos", {}).items():
-                for secret in secrets:
-                    if secret["name"] == "Secret Murderer":
-                        winners.append({"role": "murderer", "player_id": player_id})
-                    elif secret["name"] == "Secret Accomplice":
-                        winners.append({"role": "accomplice", "player_id": player_id})
+        jugadores_map = {j["player_id"]: j for j in jugadores_info}
+        logger.info(f"🔍 Estados privados disponibles: {list(estados_privados.keys())}")
+        
+        for player_id, estado_privado in estados_privados.items():
+            secretos = estado_privado.get("secretos", [])
+            player_info = jugadores_map.get(player_id, {})
+            logger.info(f"🔍 Player {player_id} ({player_info.get('name', 'Unknown')}): {len(secretos)} secretos")
+            
+            for secret in secretos:
+                secret_name = secret.get("name", "")
+                logger.info(f"  - Secret: {secret_name}")
+                if secret_name == "You are the Murderer!!":
+                    winners.append({
+                        "role": "murderer",
+                        "player_id": player_id,
+                        "name": player_info.get("name", "Unknown"),
+                        "avatar_src": player_info.get("avatar_src", "")
+                    })
+                    logger.info(f"🔪 Asesino encontrado: {player_info.get('name')} (ID: {player_id})")
+                elif secret_name == "You are the Accomplice!":
+                    winners.append({
+                        "role": "accomplice",
+                        "player_id": player_id,
+                        "name": player_info.get("name", "Unknown"),
+                        "avatar_src": player_info.get("avatar_src", "")
+                    })
+                    logger.info(f"🤝 Cómplice encontrado: {player_info.get('name')} (ID: {player_id})")
 
-        # Update game state to finished
-        game_state["status"] = "FINISH"
+        if not winners:
+            logger.error(f"⚠️ No se encontraron ganadores!")
+            logger.error(f"Estados privados: {estados_privados}")
+        else:
+            print(f"\n✅ Ganadores identificados: {winners}")
         
         # Mark room as finished in database
         await finalizar_partida(game_id, winners)
-
-        # Add winners info to game_state
-        game_state["winners"] = winners
-        game_state["game_finished"] = True
-        game_state["finish_reason"] = "deck_exhausted_murderer_wins"
-
-        # Use notificar_estado_partida for consistency
+        
+        # Notify game ended
         ws_service = get_websocket_service()
-        await ws_service.notificar_estado_partida(
+        await ws_service.notificar_fin_partida(
             room_id=room_id,
-            jugador_que_actuo=jugador_que_actuo,
-            game_state=game_state,
-            partida_finalizada=True,
-            ganador_id=winners[0]["player_id"] if winners else None  # Primary winner (murderer)
+            winners=winners,
+            reason="deck_empty"
         )
         
         logger.info(f"Partida {game_id} finalizada, winners: {winners}")
-
 
 def join_game_logic(db: Session, room_id: int, player_data: dict):
     try:
@@ -105,9 +123,12 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
         current_players = crud.list_players_by_room(db, room_id)
 
         print(current_players)
+
+        # Calculate next order for players
+        next_order = len(current_players) + 1
         
         # Check if room is full
-        if len(current_players) >= room.player_qty:
+        if len(current_players) >= room.players_max:
             return {"success": False, "error": "room_full"}
         
         # Parse birthdate string to date object
@@ -119,10 +140,11 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
         # Prepare player data for creation
         new_player_data = {
             "name": player_data["name"],
-            "avatar_src": player_data["avatar"],  # 👈 usar el nombre del modelo
+            "avatar_src": player_data["avatar"],  
             "birthdate": birthdate_obj,
             "id_room": room_id,
-            "is_host": False
+            "is_host": False,
+            "order": next_order
         }
         
         # Create the new player
@@ -141,66 +163,6 @@ def join_game_logic(db: Session, room_id: int, player_data: dict):
     except Exception as e:
         print(f"Error in join_game_logic: {e}")
         return {"success": False, "error": "internal_error"}
-
-
-#funciones para descarte
-
-async def descartar_cartas(db, game, user_id, card_ids):
-    discarded = []
-
-    next_pos = db.query(CardsXGame).filter(
-        CardsXGame.id_game == game.id,
-        CardsXGame.is_in == CardState.DISCARD
-    ).count()
-
-    for i, card_id in enumerate(card_ids, start=1):
-        # elimina duplicados
-        db.query(CardsXGame).filter(
-            CardsXGame.id_game == game.id,
-            CardsXGame.id_card == card_id,
-            CardsXGame.player_id == user_id,
-            CardsXGame.is_in != CardState.HAND
-        ).delete(synchronize_session=False)
-
-        # descartar la carta
-        card = (
-            db.query(CardsXGame)
-            .filter(
-                CardsXGame.id_game == game.id,
-                CardsXGame.player_id == user_id,
-                CardsXGame.id_card == card_id,
-                CardsXGame.is_in == CardState.HAND
-            )
-            .first()
-        )
-        if card:
-            card.is_in = CardState.DISCARD
-            card.position = next_pos + i
-            discarded.append(card)
-
-    db.commit()
-    return discarded
-
-
-
-async def robar_cartas_del_mazo(db, game, user_id, cantidad):
-    from app.db.models import CardsXGame, CardState
-    
-    drawn = (
-        db.query(CardsXGame)
-        .filter(CardsXGame.id_game == game.id,
-                CardsXGame.is_in == CardState.DECK)
-        .order_by(CardsXGame.position)  
-        .limit(cantidad)
-        .all()
-    )
-    for card in drawn:
-        # resetear dueño
-        card.player_id = user_id
-        card.is_in = CardState.HAND
-
-    db.commit()
-    return drawn
 
 
 async def actualizar_turno(db, game):

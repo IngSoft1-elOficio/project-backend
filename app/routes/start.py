@@ -1,14 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-from app.db.database import SessionLocal
-from app.schemas.start import StartRequest
-from app.db.models import Player, Room, Game, Card, CardsXGame, CardState, CardType, RoomStatus
 from app.db.crud import create_game
+from app.db.database import SessionLocal
+from app.db.models import Player, Room, Card, CardsXGame, CardState, CardType, RoomStatus, Turn, TurnStatus
+from app.schemas.start import StartRequest
 from app.sockets.socket_service import get_websocket_service
 from datetime import date, datetime
-import typing
+from app.services.game_status_service import build_complete_game_state
 import logging
+import random
+import typing
 
 logger = logging.getLogger(__name__)
 
@@ -23,23 +24,29 @@ def get_db():
 
 @router.post("/start", status_code=201)
 async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(get_db)):
+    print(f"🎯 POST /start received: {StartRequest}")
+
     try:
-            
         # Buscar sala
         room = db.query(Room).filter(Room.id == room_id).first()
         if not room:
             raise HTTPException(status_code=404, detail="Sala no encontrada")
-        
+
         # Validar estado de la sala
         if room.status != RoomStatus.WAITING:
-            raise HTTPException(status_code=409, detail=f"La sala no está en estado WAITING (actual: {room.status})")
+            raise HTTPException(
+                status_code=409,
+                detail=f"La sala no está en estado WAITING (actual: {room.status})"
+            )
 
         # Validar jugadores suficientes
         players = db.query(Player).filter(Player.id_room == room.id).all()
-        
-        if len(players) < room.player_qty:
-            logger.error(f"Not enough players: {len(players)}/{room.player_qty}")
-            raise HTTPException(status_code=409, detail=f"No hay suficientes jugadores ({len(players)}/{room.player_qty})")
+        if len(players) < room.players_min or len(players) > room.players_max:
+            logger.error(f"Not enough players: {len(players)}/{room.players_min}")
+            raise HTTPException(
+                status_code=410,
+                detail=f"Cantidad incorrecta de jugadores ({len(players)}/ minimo: {room.players_min} - maximo: {room.players_max})"
+            )
 
         # Validar host
         isHost = db.query(Player).filter(
@@ -47,124 +54,180 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
             Player.is_host == True,
             Player.id_room == room.id
         ).first()
-        
         if not isHost:
             raise HTTPException(status_code=403, detail="Solo el host puede iniciar la partida")
-        
-        # CREAR el juego nuevo
-        game = create_game(db, game_data={"player_turn_id": None})
 
-        # Asignar el game a la room
+        # Crear juego
+        game = create_game(db, game_data={"player_turn_id": None})
         room.id_game = game.id
         room.status = RoomStatus.INGAME
         db.add(room)
         db.commit()
         db.refresh(room)
 
-        # Ordenar jugadores por cercanía de cumpleaños
+        # Ordenar jugadores por cercania de cumpleaños
         ref = date(1890, 9, 15)
-
         def day_of_year(d: date) -> int:
             return d.timetuple().tm_yday
-
         ref_day = day_of_year(ref)
-
         def day_diff(d: date) -> int:
             dy = day_of_year(d)
             diff = abs(dy - ref_day)
             return min(diff, 365 - diff)
-
         players_sorted = sorted(players, key=lambda p: day_diff(p.birthdate))
-
         for i, p in enumerate(players_sorted, start=1):
             p.order = i
             db.add(p)
         db.commit()
 
-        # Asignar turno inicial al primer jugador
+        # Turno inicial
         first_player = players_sorted[0]
         game.player_turn_id = first_player.id
         db.add(game)
         db.commit()
         db.refresh(game)
 
-        # Repartir cartas
-        used_ids: typing.Set[int] = set()
+        # Crear el primer turno en la tabla Turn
+        first_turn = Turn(
+            number=1,
+            id_game=game.id,
+            player_id=first_player.id,
+            status=TurnStatus.IN_PROGRESS,
+            start_time=datetime.now()
+        )
+        db.add(first_turn)
+        db.commit()
+        db.refresh(first_turn)
+        
+        logger.info(f"✅ Created first turn: number=1, game_id={game.id}, player_id={first_player.id}")
 
-        def pick_cards(card_types: typing.List[CardType], count: int) -> typing.List[Card]:
-            q = db.query(Card).filter(
+        exclude_special = ['Card Back', 'Murderer Escapes!', 'Secret Front']
+
+        def pick_cards(card_types: typing.List[CardType], count: int, exclude_names: typing.List[str] = None) -> typing.List[Card]:
+            cards = db.query(Card).filter(
                 Card.type.in_(card_types),
-                ~Card.id.in_(list(used_ids))
-            ).order_by(func.random()).limit(count)
-            picked = q.all()
-            if len(picked) < count:
-                more = db.query(Card).filter(
-                    ~Card.id.in_(list(used_ids))
-                ).order_by(func.random()).limit(count - len(picked)).all()
-                picked += more
-            for c in picked:
-                used_ids.add(c.id)
-            return picked
+                ~Card.name.in_(exclude_names or [])
+            ).all()
+            card_pool = []
+            for c in cards:
+                card_pool.extend([c] * c.qty)
+            random.shuffle(card_pool)
+            return card_pool[:count]
 
         manos = {}
         secretos = {}
 
-        for p in players_sorted:
-            game_cards = pick_cards([CardType.EVENT, CardType.DEVIUOS, CardType.DETECTIVE], 5)
-            secret_cards = pick_cards([CardType.SECRET], 3)
+        # Asignar secretos especiales
+        num_players = len(players_sorted)
+        secret_murderer = db.query(Card).filter(Card.name == "You are the Murderer!!").first()
+        secret_accomplice = db.query(Card).filter(Card.name == "You are the Accomplice!").first() if num_players > 4 else None
 
-            # Evitar que asesino y cómplice estén en la misma mano
-            special_names = {"You're the murderer", "You're the accomplice"}
-            secret_names = {c.name for c in secret_cards}
-            if special_names.issubset(secret_names):
-                for c in list(secret_cards):
-                    if c.name in special_names:
-                        replacement = db.query(Card).filter(
-                            Card.type == CardType.SECRET,
-                            ~Card.id.in_(list(used_ids)),
-                            ~Card.name.in_(list(special_names))
-                        ).order_by(func.random()).first()
-                        if replacement:
-                            used_ids.discard(c.id)
-                            try:
-                                secret_cards.remove(c)
-                            except ValueError:
-                                pass
-                            secret_cards.append(replacement)
-                            used_ids.add(replacement.id)
-                            break
+        player_indices = list(range(num_players))
+        random.shuffle(player_indices)
+        murderer_player_index = player_indices[0]
+        accomplice_player_index = player_indices[1] if num_players > 4 else None
 
-            instant_cards = pick_cards([CardType.INSTANT], 1)
+        # Repartir cartas
+        for i, p in enumerate(players_sorted):
+            game_cards = pick_cards([CardType.EVENT, CardType.DEVIUOS, CardType.DETECTIVE], 5, exclude_special)
+            instant_cards = pick_cards([CardType.INSTANT], 1, exclude_special)
 
-            # Guardar manos y secretos
-            manos[p.id] = [{"id": c.id, "name": c.name, "type": c.type.value} for c in game_cards + instant_cards]
-            secretos[p.id] = [{"id": c.id, "name": c.name, "type": c.type.value} for c in secret_cards]
+            # Secretos
+            player_secrets: typing.List[Card] = []
+            if i == murderer_player_index and secret_murderer:
+                player_secrets.append(secret_murderer)
+            if i == accomplice_player_index and secret_accomplice:
+                player_secrets.append(secret_accomplice)
 
-            # Persistir en DB
-            for c in game_cards + instant_cards:
-                db.add(CardsXGame(
+            remaining_secrets_needed = 3 - len(player_secrets)
+            if remaining_secrets_needed > 0:
+                exclude_special.extend(["You are the Murderer!!", "You are the Accomplice!"])
+                player_secrets.extend(pick_cards([CardType.SECRET], remaining_secrets_needed, exclude_special))
+
+            # Persistir en bd
+            manos[p.id] = []
+            for pos, c in enumerate(game_cards + instant_cards, start=1):
+                cxg = CardsXGame(
                     id_game=game.id,
                     id_card=c.id,
                     is_in=CardState.HAND,
-                    position=0,
+                    position=pos,
                     player_id=p.id
-                ))
-            for c in secret_cards:
-                db.add(CardsXGame(
+                )
+                db.add(cxg)
+                db.flush()  # genera el id unico sin commit
+                manos[p.id].append({
+                    "id": cxg.id,
+                    "card_id": c.id,
+                    "name": c.name,
+                    "type": c.type
+                })
+
+            secretos[p.id] = []
+            for pos, c in enumerate(player_secrets, start=1):
+                cxg = CardsXGame(
                     id_game=game.id,
                     id_card=c.id,
                     is_in=CardState.SECRET_SET,
-                    position=0,
+                    position=pos,
                     player_id=p.id
-                ))
+                )
+                db.add(cxg)
+                db.flush()
+                secretos[p.id].append({
+                    "id": cxg.id,
+                    "card_id": c.id,
+                    "name": c.name,
+                    "type": c.type
+                })
 
         db.commit()
 
+        remaining_cards = db.query(Card).filter(
+            Card.type != CardType.SECRET,
+            Card.name != "Card Back",
+            Card.name != "Murderer Escapes!"
+        ).all()
 
-        # Cartas restantes al deck
-        remaining = db.query(Card).filter(~Card.id.in_(list(used_ids))).order_by(func.random()).all()
+        # Draft
+        draft_cards = pick_cards([CardType.EVENT, CardType.DEVIUOS, CardType.DETECTIVE], 3, exclude_special)
+        draft_cxg = []
+        for pos, c in enumerate(draft_cards, start=1):
+            cxg = CardsXGame(
+                id_game=game.id,
+                id_card=c.id,
+                is_in=CardState.DRAFT,
+                position=pos
+            )
+            db.add(cxg)
+            db.flush()
+            draft_cxg.append({
+                "id": cxg.id,
+                "card_id": c.id,
+                "name": c.name,
+                "type": c.type
+            })
 
-        for pos, c in enumerate(remaining, start=1):
+        deck_pool = []
+        for c in remaining_cards:
+            deck_pool.extend([c] * c.qty)
+
+        # Eliminar cartas que ya estan repartidas
+        for mano in manos.values():
+            for carta in mano:
+                for idx, c in enumerate(deck_pool):
+                    if c.id == carta['card_id']:
+                        deck_pool.pop(idx)
+                        break
+        for carta in draft_cards:
+            for idx, c in enumerate(deck_pool):
+                if c.id == carta.id:
+                    deck_pool.pop(idx)
+                    break
+
+        random.shuffle(deck_pool)
+
+        for pos, c in enumerate(deck_pool, start=1):
             db.add(CardsXGame(
                 id_game=game.id,
                 id_card=c.id,
@@ -173,13 +236,13 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
             ))
         db.commit()
 
-        # Payload respuesta
         payload = {
             "game": {
                 "id": game.id,
                 "name": room.name,
-                "player_qty": room.player_qty,
-                "status": room.status.value,
+                "players_min": room.players_min,
+                "players_max": room.players_max,
+                "status": room.status,
                 "host_id": isHost.id,
             },
             "turn": {
@@ -190,31 +253,14 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         }
 
         # Build game_state
-        game_state = {
-            "room_id": room_id,
-            "game_id": game.id,
-            "status": "INGAME",
-            "turno_actual": game.player_turn_id,
-            "jugadores": [
-                {"id": p.id, "name": p.name, "is_host": p.is_host, "order": p.order}
-                for p in players_sorted
-            ],
-            "mazos": {
-                "deck": len(remaining),
-                "discard": 0
-            },
-            "manos": {p.id: manos[p.id] for p in players_sorted},
-            "secretos": {p.id: secretos[p.id] for p in players_sorted},
-            "timestamp": datetime.now().isoformat()
-        }
+        game_state = build_complete_game_state(db, game.id)
 
-        # Notify via WebSocket
+        # Notificar por WebSocket
         ws_service = get_websocket_service()
         try:
             await ws_service.notificar_estado_partida(room_id=room_id, game_state=game_state)
         except Exception as e:
             logger.error(f"Failed to notify WebSocket for room {room_id}: {e}")
-        
         return payload
 
     except HTTPException:
@@ -222,3 +268,4 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error interno al iniciar la partida: {str(e)}")
+    
