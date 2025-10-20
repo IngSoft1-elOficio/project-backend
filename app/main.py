@@ -67,6 +67,8 @@ from app.routes import detective_action
 app.include_router(detective_action.router)
 from app.routes import draft
 app.include_router(draft.router)
+from app.routes import leave_game
+app.include_router(leave_game.router)
 from app.routes import another_victim
 app.include_router(another_victim.router)
 
