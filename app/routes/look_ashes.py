@@ -205,23 +205,17 @@ async def select_card_from_ashes(
             detail="Action expired"
         )
     
-    # Validate selected card is within top 5 of discard
-    top_5 = db.query(models.CardsXGame).filter(
+    # Obtener carta seleccionada
+    selected_card = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id == request.selected_card_id,
         models.CardsXGame.id_game == room.id_game,
         models.CardsXGame.is_in == models.CardState.DISCARD
-    ).order_by(models.CardsXGame.position.desc()).limit(5).all()
-
-    top_5_entry_ids = [c.id for c in top_5]
-
-    # Try to accept either the entry id (CardsXGame.id) or the base card id (Card.id)
-    selected_card = None
-    if request.selected_card_id in top_5_entry_ids:
-        selected_card = next((c for c in top_5 if c.id == request.selected_card_id), None)
+    ).first()
 
     if not selected_card:
         raise HTTPException(
             status_code=400,
-            detail=f"Selected card is not in the top 5 of discard pile."
+            detail="Selected card not found or no longer in discard pile"
         )
     
     # Store old position before moving
@@ -239,6 +233,8 @@ async def select_card_from_ashes(
     selected_card.player_id = http_user_id
     selected_card.position = hand_count  # Add to end of hand
     selected_card.hidden = True
+
+    db.flush()
 
     # Obtener todas las cartas del descarte ordenadas por posición
     remaining_discard = db.query(models.CardsXGame).filter(
