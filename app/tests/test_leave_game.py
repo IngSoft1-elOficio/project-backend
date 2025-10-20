@@ -320,3 +320,82 @@ class TestLeaveGameEndpoint:
         for player_id in player_ids:
             player_check = test_db.query(Player).filter(Player.id == player_id).first()
             assert player_check is None
+
+    def test_unknown_error_from_service(self, test_db):
+        """Test: Error 400 cuando el servicio retorna un error desconocido"""
+        # Crear sala
+        room = Room(
+            name="Test Room",
+            players_min=2,
+            players_max=6,
+            status=RoomStatus.WAITING,
+            id_game=None
+        )
+        test_db.add(room)
+        test_db.commit()
+
+        # Crear jugador
+        player = Player(
+            name="Player",
+            avatar_src="avatar.png",
+            birthdate=date(1990, 1, 1),
+            id_room=room.id,
+            is_host=False,
+            order=1
+        )
+        test_db.add(player)
+        test_db.commit()
+
+        # Mock el servicio para retornar un error desconocido
+        with patch('app.routes.leave_game.leave_game_logic') as mock_service:
+            mock_service.return_value = {
+                "success": False,
+                "error": "unknown_error_type",
+                "message": "Algo salió mal",
+                "is_host": False
+            }
+
+            response = client.delete(
+                f"/game_join/{room.id}/leave",
+                headers={"HTTP_USER_ID": str(player.id)}
+            )
+
+            assert response.status_code == 400
+            assert "unknown_error_type" in response.json()["detail"]
+
+    def test_unexpected_exception_in_service(self, test_db):
+        """Test: Error 500 cuando ocurre una excepción inesperada"""
+        # Crear sala
+        room = Room(
+            name="Test Room",
+            players_min=2,
+            players_max=6,
+            status=RoomStatus.WAITING,
+            id_game=None
+        )
+        test_db.add(room)
+        test_db.commit()
+
+        # Crear jugador
+        player = Player(
+            name="Player",
+            avatar_src="avatar.png",
+            birthdate=date(1990, 1, 1),
+            id_room=room.id,
+            is_host=False,
+            order=1
+        )
+        test_db.add(player)
+        test_db.commit()
+
+        # Mock el servicio para lanzar una excepción
+        with patch('app.routes.leave_game.leave_game_logic') as mock_service:
+            mock_service.side_effect = ValueError("Database error")
+
+            response = client.delete(
+                f"/game_join/{room.id}/leave",
+                headers={"HTTP_USER_ID": str(player.id)}
+            )
+
+            assert response.status_code == 500
+            assert "Internal server error" in response.json()["detail"]

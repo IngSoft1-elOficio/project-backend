@@ -505,3 +505,296 @@ class TestDetectiveActionRoute:
             assert hasattr(revealed, 'cardName')
             assert hasattr(revealed, 'imgSrc')
             assert hasattr(revealed, 'position')
+    
+    @pytest.mark.asyncio
+    @patch('app.routes.detective_action.get_websocket_service')
+    @patch('app.routes.detective_action.build_complete_game_state')
+    @patch('app.routes.detective_action.DetectiveActionService')
+    async def test_action_not_completed_two_step_action(
+        self,
+        mock_service_class,
+        mock_build_state,
+        mock_ws_service,
+        setup_full_game,
+        db
+    ):
+        """Test cuando la acción NO está completada (acción de 2 pasos)"""
+        from app.routes.detective_action import execute_detective_action
+        
+        data = setup_full_game
+        
+        # Mock service que retorna acción no completada
+        mock_service = Mock()
+        mock_response = Mock()
+        mock_response.success = True
+        mock_response.completed = False
+        mock_response.effects = Mock(revealed=[], hidden=[], transferred=[])
+        mock_response.nextAction = Mock(metadata={})
+        mock_service.execute_detective_action.return_value = mock_response
+        mock_service_class.return_value = mock_service
+        
+        # Mock WebSocket
+        mock_ws = Mock()
+        mock_ws.notificar_detective_target_selected = AsyncMock()
+        mock_ws.notificar_detective_action_request = AsyncMock()
+        mock_ws_service.return_value = mock_ws
+        
+        # Mock game state
+        mock_build_state.return_value = {"jugadores": []}
+        
+        request = DetectiveActionRequest(
+            actionId=data["action"].id,
+            executorId=data["player1"].id,
+            targetPlayerId=data["player2"].id,
+            secretId=data["secret"].id
+        )
+        
+        response = await execute_detective_action(
+            room_id=data["room"].id,
+            request=request,
+            db=db
+        )
+        
+        # Verificar que se llamó a los métodos correctos para acción no completada
+        mock_ws.notificar_detective_target_selected.assert_called_once()
+        mock_ws.notificar_detective_action_request.assert_called_once()
+        
+        # Verificar parámetros de las llamadas
+        target_selected_call = mock_ws.notificar_detective_target_selected.call_args
+        assert target_selected_call[1]['room_id'] == data["room"].id
+        assert target_selected_call[1]['player_id'] == data["player1"].id
+        assert target_selected_call[1]['target_player_id'] == data["player2"].id
+        
+        action_request_call = mock_ws.notificar_detective_action_request.call_args
+        assert action_request_call[1]['room_id'] == data["room"].id
+        assert action_request_call[1]['target_player_id'] == data["player2"].id
+        assert action_request_call[1]['requester_id'] == data["player1"].id
+    
+    @pytest.mark.asyncio
+    @patch('app.routes.detective_action.get_websocket_service')
+    @patch('app.routes.detective_action.build_complete_game_state')
+    @patch('app.routes.detective_action.DetectiveActionService')
+    async def test_two_step_action_with_metadata(
+        self,
+        mock_service_class,
+        mock_build_state,
+        mock_ws_service,
+        setup_full_game,
+        db
+    ):
+        """Test acción de 2 pasos con metadata en nextAction (línea 95)"""
+        from app.routes.detective_action import execute_detective_action
+        
+        data = setup_full_game
+        
+        # Mock service que retorna acción no completada con metadata
+        mock_service = Mock()
+        mock_response = Mock()
+        mock_response.success = True
+        mock_response.completed = False
+        mock_response.effects = Mock(revealed=[], hidden=[], transferred=[])
+        mock_response.nextAction = Mock(metadata={"some_key": "some_value"})  # Con metadata
+        mock_service.execute_detective_action.return_value = mock_response
+        mock_service_class.return_value = mock_service
+        
+        # Mock WebSocket
+        mock_ws = Mock()
+        mock_ws.notificar_detective_target_selected = AsyncMock()
+        mock_ws.notificar_detective_action_request = AsyncMock()
+        mock_ws_service.return_value = mock_ws
+        
+        # Mock game state
+        mock_build_state.return_value = {"jugadores": []}
+        
+        request = DetectiveActionRequest(
+            actionId=data["action"].id,
+            executorId=data["player1"].id,
+            targetPlayerId=data["player2"].id,
+            secretId=data["secret"].id
+        )
+        
+        response = await execute_detective_action(
+            room_id=data["room"].id,
+            request=request,
+            db=db
+        )
+        
+        # Verificar que se usó set_type="detective" cuando hay metadata
+        target_selected_call = mock_ws.notificar_detective_target_selected.call_args
+        assert target_selected_call[1]['set_type'] == "detective"
+        
+        action_request_call = mock_ws.notificar_detective_action_request.call_args
+        assert action_request_call[1]['set_type'] == "detective"
+    
+    @pytest.mark.asyncio
+    @patch('app.routes.detective_action.get_websocket_service')
+    @patch('app.routes.detective_action.build_complete_game_state')
+    @patch('app.routes.detective_action.DetectiveActionService')
+    async def test_websocket_exception_during_notification(
+        self,
+        mock_service_class,
+        mock_build_state,
+        mock_ws_service,
+        setup_full_game,
+        db
+    ):
+        """Test que excepciones en WebSocket no rompen el response (líneas 130-138)"""
+        from app.routes.detective_action import execute_detective_action
+        
+        data = setup_full_game
+        
+        # Mock service que retorna acción completada
+        mock_service = Mock()
+        mock_response = Mock()
+        mock_response.success = True
+        mock_response.completed = True
+        mock_response.effects = Mock(
+            revealed=[Mock(secretId=1, playerId=data["player2"].id)],
+            hidden=[],
+            transferred=[]
+        )
+        mock_service.execute_detective_action.return_value = mock_response
+        mock_service_class.return_value = mock_service
+        
+        # Mock WebSocket que falla en notificar
+        mock_ws = Mock()
+        mock_ws.notificar_detective_action_complete = AsyncMock(
+            side_effect=Exception("Connection lost")
+        )
+        mock_ws.notificar_estado_partida = AsyncMock()
+        mock_ws_service.return_value = mock_ws
+        
+        # Mock game state
+        mock_build_state.return_value = {"jugadores": []}
+        
+        request = DetectiveActionRequest(
+            actionId=data["action"].id,
+            executorId=data["player1"].id,
+            targetPlayerId=data["player2"].id,
+            secretId=data["secret"].id
+        )
+        
+        # No debe fallar aunque WebSocket falle
+        response = await execute_detective_action(
+            room_id=data["room"].id,
+            request=request,
+            db=db
+        )
+        
+        # Verificar que retorna el response exitoso
+        assert response.success is True
+        assert response.completed is True
+    
+    @pytest.mark.asyncio
+    @patch('app.routes.detective_action.get_websocket_service')
+    @patch('app.routes.detective_action.build_complete_game_state')
+    @patch('app.routes.detective_action.DetectiveActionService')
+    async def test_completed_action_with_transferred_secret(
+        self,
+        mock_service_class,
+        mock_build_state,
+        mock_ws_service,
+        setup_full_game,
+        db
+    ):
+        """Test acción completada con secreto transferido (wildcard)"""
+        from app.routes.detective_action import execute_detective_action
+        
+        data = setup_full_game
+        
+        # Mock service que retorna acción completada con secreto transferido
+        mock_service = Mock()
+        mock_response = Mock()
+        mock_response.success = True
+        mock_response.completed = True
+        mock_response.effects = Mock(
+            revealed=[],
+            hidden=[],
+            transferred=[Mock(secretId=1, fromPlayerId=data["player2"].id)]
+        )
+        mock_service.execute_detective_action.return_value = mock_response
+        mock_service_class.return_value = mock_service
+        
+        # Mock WebSocket
+        mock_ws = Mock()
+        mock_ws.notificar_detective_action_complete = AsyncMock()
+        mock_ws.notificar_estado_partida = AsyncMock()
+        mock_ws_service.return_value = mock_ws
+        
+        # Mock game state
+        mock_build_state.return_value = {"jugadores": []}
+        
+        request = DetectiveActionRequest(
+            actionId=data["action"].id,
+            executorId=data["player1"].id,
+            targetPlayerId=data["player2"].id,
+            secretId=data["secret"].id
+        )
+        
+        response = await execute_detective_action(
+            room_id=data["room"].id,
+            request=request,
+            db=db
+        )
+        
+        # Verificar que se pasó action="transferred" y wildcard_used=True
+        call_args = mock_ws.notificar_detective_action_complete.call_args
+        assert call_args[1]['action'] == "transferred"
+        assert call_args[1]['wildcard_used'] is True
+    
+    @pytest.mark.asyncio
+    @patch('app.routes.detective_action.get_websocket_service')
+    @patch('app.routes.detective_action.build_complete_game_state')
+    @patch('app.routes.detective_action.DetectiveActionService')
+    async def test_completed_action_with_hidden_secret(
+        self,
+        mock_service_class,
+        mock_build_state,
+        mock_ws_service,
+        setup_full_game,
+        db
+    ):
+        """Test acción completada con secreto oculto (Parker Pyne)"""
+        from app.routes.detective_action import execute_detective_action
+        
+        data = setup_full_game
+        
+        # Mock service que retorna acción completada con secreto oculto
+        mock_service = Mock()
+        mock_response = Mock()
+        mock_response.success = True
+        mock_response.completed = True
+        mock_response.effects = Mock(
+            revealed=[],
+            hidden=[Mock(secretId=1, playerId=data["player2"].id)],
+            transferred=[]
+        )
+        mock_service.execute_detective_action.return_value = mock_response
+        mock_service_class.return_value = mock_service
+        
+        # Mock WebSocket
+        mock_ws = Mock()
+        mock_ws.notificar_detective_action_complete = AsyncMock()
+        mock_ws.notificar_estado_partida = AsyncMock()
+        mock_ws_service.return_value = mock_ws
+        
+        # Mock game state
+        mock_build_state.return_value = {"jugadores": []}
+        
+        request = DetectiveActionRequest(
+            actionId=data["action"].id,
+            executorId=data["player1"].id,
+            targetPlayerId=data["player2"].id,
+            secretId=data["secret"].id
+        )
+        
+        response = await execute_detective_action(
+            room_id=data["room"].id,
+            request=request,
+            db=db
+        )
+        
+        # Verificar que se pasó action="hidden"
+        call_args = mock_ws.notificar_detective_action_complete.call_args
+        assert call_args[1]['action'] == "hidden"
+        assert call_args[1]['wildcard_used'] is False
