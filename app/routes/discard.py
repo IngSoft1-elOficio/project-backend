@@ -77,10 +77,19 @@ async def discard_cards(
     ordered_card_ids = [c.id_card for c in ordered_player_cards]
     print(f"✅ Orden corregido: {ordered_card_ids}")  # LOG 3
 
+    ordered_card_ids = [c.id_card for c in ordered_player_cards]
+
     # descartar
     discarded = await descartar_cartas(db, game, user_id, ordered_player_cards)
+
+    discarded_rows = db.query(CardsXGame).filter(
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.DISCARD,
+        CardsXGame.id_card.in_(ordered_card_ids)
+    ).order_by(CardsXGame.position.asc()).all()
+
     # Capture card IDs BEFORE any other operation that might detach objects
-    discarded_card_ids = [c.id_card for c in discarded]
+    discarded_card_ids = [c.id_card for c in discarded_rows]
     print(f"📤 Orden final descartado: {discarded_card_ids}")  # LOG 4
   
 
@@ -102,7 +111,7 @@ async def discard_cards(
     # armar response usando helper
     response = DiscardResponse(
         action={
-            "discarded": [to_card_summary(c) for c in discarded],
+            "discarded": [to_card_summary(c) for c in discarded_rows],
             "drawn": []
         },
         hand={
@@ -115,7 +124,7 @@ async def discard_cards(
                 .count()
         },
         discard={
-            "top": to_card_summary(discarded[-1]) if discarded else None,
+            "top": to_card_summary(discarded_rows[-1]) if discarded_rows else None,
             "count": db.query(CardsXGame)
                 .filter(CardsXGame.id_game == game.id, CardsXGame.is_in == CardState.DISCARD)
                 .count()
