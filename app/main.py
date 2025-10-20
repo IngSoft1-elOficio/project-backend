@@ -69,6 +69,8 @@ from app.routes import draft
 app.include_router(draft.router)
 from app.routes import look_ashes
 app.include_router(look_ashes.router)
+from app.routes import another_victim
+app.include_router(another_victim.router)
 
 # Aplicación ASGI con Socket.IO
 socket_app = socketio.ASGIApp(sio, app)

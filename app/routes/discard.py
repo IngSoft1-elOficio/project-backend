@@ -91,16 +91,6 @@ async def discard_cards(
     # Capture card IDs BEFORE any other operation that might detach objects
     discarded_card_ids = [c.id_card for c in discarded_rows]
     print(f"📤 Orden final descartado: {discarded_card_ids}")  # LOG 4
-  
-
-    # Check deck count
-    deck_count = db.query(CardsXGame).filter(
-        CardsXGame.id_game == game.id,
-        CardsXGame.is_in == CardState.DECK
-    ).count()
-
-    # Get all players
-    players = db.query(Player).filter(Player.id_room == room_id).order_by(Player.order.asc()).all()
     
     all_hand_cards = db.query(CardsXGame).filter(
         CardsXGame.id_game == game.id,
