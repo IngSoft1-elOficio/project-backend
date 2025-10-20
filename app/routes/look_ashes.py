@@ -239,6 +239,21 @@ async def select_card_from_ashes(
     selected_card.player_id = http_user_id
     selected_card.position = hand_count  # Add to end of hand
     selected_card.hidden = True
+
+    # Obtener todas las cartas del descarte ordenadas por posición
+    remaining_discard = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == room.id_game,
+        models.CardsXGame.is_in == models.CardState.DISCARD
+    ).order_by(models.CardsXGame.position.asc()).all()
+
+    # Reasignar posiciones secuenciales (0, 1, 2, 3...)
+    for idx, card in enumerate(remaining_discard):
+        old_pos = card.position
+        card.position = idx
+        if old_pos != idx:
+            print(f"  📦 Reindexando: Carta {card.id_card} de pos {old_pos} → {idx}")
+    
+    print(f"🔄 Reindexado completo: {len(remaining_discard)} cartas en descarte")
     
     # Create completion action using crud helper
     completion_action_data = {
