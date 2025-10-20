@@ -92,7 +92,6 @@ async def finish_turn(
     # Avanzar turno
     players = db.query(Player).filter(Player.id_room == room.id).order_by(Player.order.asc()).all()
 
-
     current_order = next((p.order for p in players if p.id == request.user_id), None)
     next_order = (current_order % len(players)) + 1
     next_player = next((p for p in players if p.order == next_order), None)

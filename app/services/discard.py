@@ -45,7 +45,9 @@ async def descartar_cartas(db, game, user_id, ordered_player_cards):
         
         # Descartar la carta (modificar el objeto existente)
         card.is_in = CardState.DISCARD
-        card.position = next_pos + i
+        card.position = next_pos + i  # Ahora i empieza en 0, así que está bien
+        card.player_id = None
+        card.hidden = False
         discarded.append(card)
         
         # Log individual discard action with parent reference
@@ -67,7 +69,7 @@ async def descartar_cartas(db, game, user_id, ordered_player_cards):
     # Flush changes to database but don't commit yet
     db.flush()
     
-    # Commit all changes at once
+    db.flush()
     db.commit()
     
     # After commit, the objects are still valid - no need to refresh
