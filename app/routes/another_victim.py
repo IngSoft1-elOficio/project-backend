@@ -171,6 +171,16 @@ async def another_victim(
             another_victim_card.hidden = False
             another_victim_card.player_id = None
             
+        # CALCULAR NUEVA POSICIÓN PARA EL SET ROBADO
+        max_actor_set_position = db.query(CardsXGame.position).filter(
+            CardsXGame.player_id == actor.id,
+            CardsXGame.id_game == game.id,
+            CardsXGame.is_in == CardState.DETECTIVE_SET
+        ).order_by(CardsXGame.position.desc()).first()
+        
+        new_set_position = (max_actor_set_position[0] + 1) if max_actor_set_position else 1
+        
+        logger.info(f"Set will be moved from position {request.setPosition} to {new_set_position}")
         
         # evento another victim
         action_event = ActionsPerTurn(
@@ -198,16 +208,16 @@ async def another_victim(
             action_time=datetime.now(),
             player_source=victim.id,
             player_target=actor.id,
-            selected_set_id=request.setPosition,
+            selected_set_id=new_set_position,
             parent_action_id=action_event.id
         )
         db.add(action_steal)
         db.flush()
         
         
-        # transfiero el set al actor
         for idx, card in enumerate(victim_set_cards):
             card.player_id = actor.id
+            card.position = new_set_position
             
             action_move = ActionsPerTurn(
                 id_game=game.id,
@@ -235,7 +245,7 @@ async def another_victim(
         response = VictimResponse(
             success=True,
             transferredSet=TransferredSet(
-                position=request.setPosition,
+                position=new_set_position,
                 cards=transferred_cards,
                 newOwnerId=actor.id,
                 originalOwnerId=victim.id
@@ -256,10 +266,11 @@ async def another_victim(
                 "fromPlayerName": victim.name,
                 "toPlayerId": actor.id,
                 "toPlayerName": actor.name,
-                "setPosition": request.setPosition,
+                "originalSetPosition": request.setPosition,
+                "newSetPosition": new_set_position,
                 "cardCount": len(victim_set_cards),
                 "transferredSet": {
-                    "position": request.setPosition,
+                    "position": new_set_position,
                     "cards": [
                         {
                             "cardId": c.cardId,
