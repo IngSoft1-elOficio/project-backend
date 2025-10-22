@@ -205,27 +205,39 @@ async def one_more_step_3(
     db: Session = Depends(get_db)
 ):
 
+    #busco sala
     room = crud.get_room_by_id(db, room_id)
     if not room:
         raise HTTPException(status_code=404, detail="room_not_found")
 
+    #busco partida
     game = crud.get_game_by_id(db, room.id_game)
     if not game:
         raise HTTPException(status_code=404, detail="game_not_found")
 
+    #validar turno
     if game.player_turn_id != user_id:
         raise HTTPException(status_code=403, detail="not_your_turn")
 
-    action = db.query(models.ActionsPerTurn).filter(
+    #validar si la accion existe y le pertenece al jugador
+    parent_action = db.query(models.ActionsPerTurn).filter(
         models.ActionsPerTurn.id == payload.action_id
     ).first()
-    if not action:
+    if not parent_action:
         raise HTTPException(status_code=404, detail="action_not_found")
-    if action.player_id != user_id:
+    if parent_action.player_id != user_id:
         raise HTTPException(status_code=403, detail="not_your_action")
 
+    #obtener la subacción (del step 2) que guarda el secret_target
+    sub_action = db.query(models.ActionsPerTurn).filter(
+        models.ActionsPerTurn.parent_action_id == payload.action_id
+    ).first()
+    if not sub_action:
+        raise HTTPException(status_code=404, detail="subaction_not_found")
+
+    #chequear si el secreto existe
     secret = db.query(models.CardsXGame).filter(
-        models.CardsXGame.id == action.secret_target,
+        models.CardsXGame.id == sub_action.secret_target,
         models.CardsXGame.id_game == game.id
     ).first()
     if not secret:
@@ -240,7 +252,7 @@ async def one_more_step_3(
         # transfiero el secreto
         transferred_card = crud.transfer_secret_card(
             db=db,
-            card_id=action.secret_target,
+            card_id=sub_action.secret_target,
             new_player_id=payload.target_player_id,
             new_position=new_position,
             face_down=True
@@ -250,7 +262,7 @@ async def one_more_step_3(
             raise Exception("Failed to transfer secret — card not found or invalid ID")
 
         # Crear subacción
-        sub_action = models.ActionsPerTurn(
+        final_action = models.ActionsPerTurn(
             id_game=game.id,
             action_name="and_then_one_more_select_player",
             player_id=user_id,
@@ -261,9 +273,9 @@ async def one_more_step_3(
             action_time=datetime.utcnow()
         )
 
-        db.add(sub_action)
+        db.add(final_action)
         db.commit()
-        db.refresh(sub_action)
+        db.refresh(final_action)
 
         success = True
 
