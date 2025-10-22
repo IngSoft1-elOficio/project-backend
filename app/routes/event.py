@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
-from app.db.database import SessionLocal
-from pydantic import BaseModel
-from app.db.models import Game, Room, CardsXGame, CardState, Player, RoomStatus, Card, ActionsPerTurn
-from app.sockets.socket_service import get_websocket_service
-from app.schemas.event_schema import OneMoreStartRequest, OneMoreStartResponse, OneMoreSecondRequest, OneMoreSecondResponse, OneMoreThirdRequest, OneMoreThirdResponse
 from datetime import datetime
+from app.db.database import SessionLocal
+from app.db import crud, models
+from app.schemas.event_schema import (
+    OneMoreStartRequest, OneMoreStartResponse,
+    OneMoreSecondRequest, OneMoreSecondResponse,
+    OneMoreThirdRequest, OneMoreThirdResponse
+)
+from app.sockets.socket_service import get_websocket_service
+
 
 router = APIRouter(prefix="/api/game", tags=["Events"])
 
@@ -18,6 +22,7 @@ def get_db():
         db.close()
 
 # One-More: Permite elegir un secreto revelado y añadirlo oculto en el set de secretos de cualquier jugador
+# STEP 1
 @router.post("/{room_id}/event/one-more", response_model = OneMoreStartResponse, status_code = 200)
 async def one_more_step_1(
     room_id: int,
@@ -27,11 +32,12 @@ async def one_more_step_1(
 ):
 
     #busco sala
-    room = db.query(Room).filter(Room.id == room_id).first()
+    room = crud.get_room_by_id(db, room_id)
     if not room:
         raise HTTPException(status_code = 404, detail = "room_not_found")
+
     #busco partida
-    game = db.query(Game).filter(Game.id == room.id_game).first()
+    game = crud.get_game_by_id(db, room.id_game)
     if not game :
         raise HTTPException(status_code = 404 , detail = "game_not_found")
 
@@ -39,22 +45,49 @@ async def one_more_step_1(
     if game.player_turn_id != user_id:
         raise HTTPException(status_code = 403, detail = "not_your_turn")
 
-    # Crear registro en actions_per_turn
-    action = ActionsPerTurn(
-        id_game = game.id,
-        actionName = "and_then_one_more",
-        player_id = user_id,              
-        parent_action_id = None,       
-        to_be_hidden = False    #indica si la accion va a ocultar cartas
-    )
+    # Validar que la carta esté en mano del jugador
+    event_card = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id == payload.card_id,
+        models.CardsXGame.player_id == user_id,
+        models.CardsXGame.id_game == room.id_game,
+        models.CardsXGame.is_in == models.CardState.HAND
+    ).first()
+    
+    if not event_card:
+        raise HTTPException(
+            status_code=404, 
+            detail="Event card not found in your hand"
+        )
+    
+    # Validate card type is EVENT
+    if event_card.card.type != models.CardType.EVENT:
+        raise HTTPException(
+            status_code=400,
+            detail="Card is not an event card"
+        )
+    
 
-    db.add(action)
+    # Crear registro en actions_per_turn
+    current_turn = crud.get_current_turn(db, room.id_game)
+    action_data = {
+        'id_game': room.id_game,
+        'turn_id': current_turn.id,
+        'player_id': user_id,
+        'action_name': models.ActionName.AND_THEN_THERE_WAS_ONE_MORE,
+        'action_type': models.ActionType.EVENT_CARD,
+        'result': models.ActionResult.SUCCESS,
+        'selected_card_id': event_card.id
+    }
+    
+    action = crud.create_action(db, action_data)
+
     db.commit()
     db.refresh(action)
 
     #ahora tengo q obtener los secretos revelados y ponerlos en avaliable_secrets
-    secrets = db.query(CardsXGame).filter(CardsXGame.id_game == game.id, CardsXGame.is_in == CardState.SECRET_SET,
-                                         CardsXGame.hidden == False).all()
+    secrets = db.query(models.CardsXGame).filter(models.CardsXGame.id_game == game.id, 
+                                                models.CardsXGame.is_in == models.CardState.SECRET_SET,
+                                                models.CardsXGame.hidden == False).all()
     available_secrets_ids = [s.id for s in secrets]
 
 
@@ -68,10 +101,10 @@ async def one_more_step_1(
         step = "selecting_secret"
     )
 
-    return {
-        "action_id" : action.id,
-        "available_secrets" : available_secrets_ids
-    }
+    return OneMoreStartResponse(
+    action_id=action.id,
+    available_secrets=available_secrets_ids
+)
 
 
 
@@ -221,5 +254,5 @@ async def one_more_step_3(
 
     # Respuesta final
     return {
-        "success": True,
+        "success": True
     }

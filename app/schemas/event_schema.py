@@ -19,9 +19,9 @@ class OneMoreSecondResponse(BaseModel):
     allowed_players: list[int]
 
 # And then was one more (step 3)
-class OneMoreThirdRequest(Basemodel):
+class OneMoreThirdRequest(BaseModel):
     action_id: int
     target_player_id: int
 
-class OneMoreThirdResponse(Basemodel):
-    sucess: bool
+class OneMoreThirdResponse(BaseModel):
+    success: bool
