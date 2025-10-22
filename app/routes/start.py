@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.crud import create_game
 from app.db.database import SessionLocal
-from app.db.models import Player, Room, Card, CardsXGame, CardState, CardType, RoomStatus
+from app.db.models import Player, Room, Card, CardsXGame, CardState, CardType, RoomStatus, Turn, TurnStatus
 from app.schemas.start import StartRequest
 from app.sockets.socket_service import get_websocket_service
 from datetime import date, datetime
@@ -87,7 +87,21 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         db.commit()
         db.refresh(game)
 
-        exclude_special = ['Card Back', 'Murder Escapes', 'Secret Front']
+        # Crear el primer turno en la tabla Turn
+        first_turn = Turn(
+            number=1,
+            id_game=game.id,
+            player_id=first_player.id,
+            status=TurnStatus.IN_PROGRESS,
+            start_time=datetime.now()
+        )
+        db.add(first_turn)
+        db.commit()
+        db.refresh(first_turn)
+        
+        logger.info(f"✅ Created first turn: number=1, game_id={game.id}, player_id={first_player.id}")
+
+        exclude_special = ['Card Back', 'Murderer Escapes!', 'Secret Front']
 
         def pick_cards(card_types: typing.List[CardType], count: int, exclude_names: typing.List[str] = None) -> typing.List[Card]:
             cards = db.query(Card).filter(
@@ -172,7 +186,7 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         remaining_cards = db.query(Card).filter(
             Card.type != CardType.SECRET,
             Card.name != "Card Back",
-            Card.name != "Murder Escapes"
+            Card.name != "Murderer Escapes!"
         ).all()
 
         # Draft
@@ -212,10 +226,6 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
                     break
 
         random.shuffle(deck_pool)
-
-        murder_escapes = db.query(Card).filter(Card.name == "Murder Escapes").first()
-        if murder_escapes:
-            deck_pool.append(murder_escapes)
 
         for pos, c in enumerate(deck_pool, start=1):
             db.add(CardsXGame(

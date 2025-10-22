@@ -42,6 +42,8 @@ class WebSocketService:
             "turno_actual": game_state.get("turno_actual"),
             "jugadores": game_state.get("jugadores", []),
             "mazos": game_state.get("mazos", {}),
+            "sets": game_state.get("sets", []),
+            "secretsFromAllPlayers": game_state.get("secretsFromAllPlayers", []),
             "timestamp": datetime.now().isoformat()
         }
         
@@ -384,6 +386,49 @@ class WebSocketService:
         }
         await self.ws_manager.emit_to_room(room_id, "turn_finished", mensaje)
         logger.info(f"✅ Emitted turn_finished to room {room_id}: Player {player_id}")
+
+    # ----------------------
+    # | LOBBY - LEAVE GAME |
+    # ----------------------
+    
+    async def notificar_game_cancelled(
+        self,
+        room_id: int,
+        timestamp: str
+    ):
+        """
+        Notificar a todos los jugadores que la partida fue cancelada
+        Todos los jugadores deben ser redirigidos a /lobby
+        """
+        mensaje = {
+            "type": "game_cancelled",
+            "room_id": room_id,
+            "timestamp": timestamp
+        }
+        await self.ws_manager.emit_to_room(room_id, "game_cancelled", mensaje)
+        logger.info(f"Emitted game_cancelled to room {room_id}")
+    
+    async def notificar_player_left(
+        self,
+        room_id: int,
+        player_id: int,
+        players_count: int,
+        players: list,
+        timestamp: str
+    ):
+        """
+        Notificar a todos los jugadores que alguien abandono la sala
+        Actualizar la lista de jugadores en la sala
+        """
+        mensaje = {
+            "type": "player_left",
+            "player_id": player_id,
+            "players_count": players_count,
+            "players": players,
+            "timestamp": timestamp
+        }
+        await self.ws_manager.emit_to_room(room_id, "player_left", mensaje)
+        logger.info(f"Emitted player_left to room {room_id}: player {player_id} left")
 
 _websocket_service = None
 

@@ -74,21 +74,23 @@ async def discard_cards(
     # reordenar cartas para mantener orden de descarte
     card_dict = {card.id: card for card in player_cards}
     ordered_player_cards = [card_dict[card_id] for card_id in card_ids]
-    print(f"✅ Orden corregido: {[c.id_card for c in ordered_player_cards]}")  # LOG 3
+    ordered_card_ids = [c.id_card for c in ordered_player_cards]
+    print(f"✅ Orden corregido: {ordered_card_ids}")  # LOG 3
+
+    ordered_card_ids = [c.id_card for c in ordered_player_cards]
 
     # descartar
     discarded = await descartar_cartas(db, game, user_id, ordered_player_cards)
-    print(f"📤 Orden final descartado: {[c.id_card for c in discarded]}")  # LOG 4
-  
 
-    # Check deck count
-    deck_count = db.query(CardsXGame).filter(
+    discarded_rows = db.query(CardsXGame).filter(
         CardsXGame.id_game == game.id,
-        CardsXGame.is_in == CardState.DEC
-    ).count()
+        CardsXGame.is_in == CardState.DISCARD,
+        CardsXGame.id_card.in_(ordered_card_ids)
+    ).order_by(CardsXGame.position.asc()).all()
 
-    # Get all players
-    players = db.query(Player).filter(Player.id_room == room_id).order_by(Player.order.asc()).all()
+    # Capture card IDs BEFORE any other operation that might detach objects
+    discarded_card_ids = [c.id_card for c in discarded_rows]
+    print(f"📤 Orden final descartado: {discarded_card_ids}")  # LOG 4
     
     all_hand_cards = db.query(CardsXGame).filter(
         CardsXGame.id_game == game.id,
@@ -99,7 +101,7 @@ async def discard_cards(
     # armar response usando helper
     response = DiscardResponse(
         action={
-            "discarded": [to_card_summary(c) for c in discarded],
+            "discarded": [to_card_summary(c) for c in discarded_rows],
             "drawn": []
         },
         hand={
@@ -112,7 +114,7 @@ async def discard_cards(
                 .count()
         },
         discard={
-            "top": to_card_summary(discarded[-1]) if discarded else None,
+            "top": to_card_summary(discarded_rows[-1]) if discarded_rows else None,
             "count": db.query(CardsXGame)
                 .filter(CardsXGame.id_game == game.id, CardsXGame.is_in == CardState.DISCARD)
                 .count()

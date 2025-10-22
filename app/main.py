@@ -3,6 +3,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 import socketio
+import logging
+
+# Configurar logging para debugging (comentado en producción)
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# )
 
 # Inicializar FastAPI
 app = FastAPI(
@@ -26,8 +33,8 @@ app.add_middleware(
 sio = socketio.AsyncServer(
     async_mode="asgi",
     cors_allowed_origins="*",
-    logger=False,          # para debugear
-    engineio_logger=False
+    logger=False,           # Logs de Socket.IO (cambiar a True para debugging)
+    engineio_logger=False   # Logs de Engine.IO (cambiar a True para debugging)
 )
 
 # Inicializar manager global
@@ -54,6 +61,18 @@ from app.routes import finish_turn
 app.include_router(finish_turn.router)
 from app.routes import take_deck
 app.include_router(take_deck.router)
+from app.routes import play_detective_set
+app.include_router(play_detective_set.router)
+from app.routes import detective_action
+app.include_router(detective_action.router)
+from app.routes import draft
+app.include_router(draft.router)
+from app.routes import look_ashes
+app.include_router(look_ashes.router)
+from app.routes import leave_game
+app.include_router(leave_game.router)
+from app.routes import another_victim
+app.include_router(another_victim.router)
 
 # Aplicación ASGI con Socket.IO
 socket_app = socketio.ASGIApp(sio, app)

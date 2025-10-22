@@ -51,7 +51,7 @@ SECRET_KEY="developer_pass"
 ```bash
 mysql -u developer -p -e "DROP DATABASE IF EXISTS cards_table_develop; CREATE DATABASE cards_table_develop;"
 python create_db.py
-mysql -u developer -p cards_table_develop < scripts/carga-datos.sql #Carga de datos iniciales
+mysql -u developer -p cards_table_develop < scripts/carga-datos.sql 
 ```
 ## Ejecutar tests unitarios
 ```bash
@@ -68,3 +68,11 @@ python -m pytest
 ./scripts/start_dev.sh
 ```
 
+# Documentación de la API
+
+La documentación detallada de la API REST y WebSocket del proyecto se encuentra en el archivo [documentacion-API.md](documentacion-API.md). Se detalla:
+
+- Esquemas de datos y modelos
+- Endpoints REST disponibles
+- Eventos WebSocket
+- Ejemplos de uso
