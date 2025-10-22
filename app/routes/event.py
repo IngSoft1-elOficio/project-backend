@@ -88,7 +88,15 @@ async def one_more_step_1(
     secrets = db.query(models.CardsXGame).filter(models.CardsXGame.id_game == game.id, 
                                                 models.CardsXGame.is_in == models.CardState.SECRET_SET,
                                                 models.CardsXGame.hidden == False).all()
-    available_secrets_ids = [s.id for s in secrets]
+
+    available_secrets = []
+
+    for secret in secrets:
+        available_secrets.append({
+        "secret_id": secret.id,
+        "player_id": secret.player_id,
+    })
+
 
 
     #notifico a todos la carta q se esta jugando
@@ -103,7 +111,7 @@ async def one_more_step_1(
 
     return OneMoreStartResponse(
     action_id=action.id,
-    available_secrets=available_secrets_ids
+    available_secrets=available_secrets
 )
 
 
