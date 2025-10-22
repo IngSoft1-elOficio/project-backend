@@ -61,24 +61,26 @@ class WebSocketManager:
             await self.sio.emit('error', {'message': 'Error uniendose a la partida'}, room=sid)
             return False
 
-    async def leave_game_room(self, sid: str):
+    async def leave_game_room(self, sid: str, room_id: int = None):
         """Salir del room"""
         try: 
             if sid not in self.user_sessions:
                 return
             
             session_data = self.user_sessions[sid]
-            game_id = session_data['game_id']
+            # Si room_id no se proporciona, usar room_id de la sesión
+            if room_id is None:
+                room_id = session_data.get('room_id')
             user_id = session_data['user_id']
-            room = self.get_room_name(game_id)
+            room = self.get_room_name(room_id)
 
             # salir de la room
             await self.sio.leave_room(sid, room)
 
             # notificar a otros jugadores
-            await self.sio.emit('leaved_room', {
+            await self.sio.emit('player_disconnected', {
                 'user_id': user_id,
-                'game_id': game_id,
+                'room_id': room_id,
                 'timestamp': datetime.now().isoformat()
             }, room=room)
 
