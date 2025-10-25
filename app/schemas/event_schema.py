@@ -1,17 +1,21 @@
 from pydantic import BaseModel
+from typing import List
+
 # delay de murderer escape
 class delay_escape_start_request(BaseModel):
-    "action_id" : int
-    "quantity" : int
+    card_id : int
+    quantity : int
 
 class delay_escape_start_response(BaseModel):
-    "action_id" : int 
-    "avaliable_cards" : list[int]
+    action_id : int 
+    available_cards: List[int]
 
 class delay_escape_order_request(BaseModel):
-    "action_id" : int
-    "orderer_cards_ids" : list[int]
-
+    action_id : int
+    ordered_cards_ids : List[int]
 
 class delay_escape_order_response(BaseModel):
-    "sucess" : bool
+    status: str
+    action_id: int
+    moved_cards: List[int]
+
