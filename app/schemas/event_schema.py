@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-
 # delay de murderer escape
 class delay_escape_start_request(BaseModel):
     "action_id" : int
