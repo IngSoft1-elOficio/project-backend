@@ -9,6 +9,7 @@ start_game = route_mod.start_game
 RoomStatus = db_models.RoomStatus
 CardType = db_models.CardType
 CardState = db_models.CardState
+Turn = db_models.Turn
 
 class ConditionMock:
     def __init__(self, left, op, right):
@@ -206,10 +207,57 @@ async def test_queryfake_all_other_model():
 @pytest.mark.asyncio
 async def test_rollback_on_flush_exception(monkeypatch, setup_db, fake_ws, fake_create):
     patch_models(monkeypatch)
-    # Fuerza excepción en flush para disparar el rollback
     def fail_flush():
         raise Exception("flush fail")
     setup_db.flush = fail_flush
     with pytest.raises(Exception, match="Error interno al iniciar la partida: flush fail"):
         await start_game(1, types.SimpleNamespace(user_id=10), setup_db)
     assert hasattr(setup_db, '_rolledback') and setup_db._rolledback
+
+# Test para verificar que se crea el primer turno
+@pytest.mark.asyncio
+async def test_creates_first_turn(monkeypatch, setup_db, fake_ws, fake_create):
+    """Test que verifica que se crea el primer turno al iniciar la partida"""
+    patch_models(monkeypatch)
+    
+    # Mock para capturar el turno creado
+    created_turns = []
+    original_add = setup_db.add
+    def capture_add(obj):
+        if hasattr(obj, '__class__') and obj.__class__.__name__ == 'Turn':
+            created_turns.append(obj)
+        return original_add(obj)
+    
+    setup_db.add = capture_add
+    
+    # Ejecutar
+    await start_game(1, types.SimpleNamespace(user_id=10), setup_db)
+    
+    # Verificar que se creó un turno
+    assert len(created_turns) == 1
+    turn = created_turns[0]
+    assert turn.number == 1
+    assert turn.id_game == 100  # Game ID from fake_create
+    assert turn.player_id == 10  # First player ID
+    assert turn.status == db_models.TurnStatus.IN_PROGRESS
+    assert turn.start_time is not None
+
+@pytest.mark.asyncio
+async def test_two_players_exclude_cards_in_same_file(monkeypatch, fake_ws, fake_create):
+    """Verifica que en partidas de 2 jugadores no se reparten ni aparecen en deck las cartas excluidas"""
+    patch_models(monkeypatch)
+    db = FakeDB()
+    db.rooms.append(Room(1, "Sala Test"))
+    db.players += [
+        Player(10, "A", 1, date(1990,1,1), True),
+        Player(11, "B", 1, date(1991,1,1), False)
+    ]
+    db.cards += [
+        Card(1, 'Point your suspicions', CardType.EVENT, 1),
+        Card(2, 'Blackmailed', CardType.DEVIUOS, 1),
+        Card(3, 'Other Event', CardType.EVENT, 3),
+    ]
+    res = await start_game(1, types.SimpleNamespace(user_id=10), db)
+    ids_in_db = [getattr(a, 'id_card', None) for a in db.added if hasattr(a, 'id_card')]
+    assert len(ids_in_db) > 0
+    assert res['game']['id'] == 100

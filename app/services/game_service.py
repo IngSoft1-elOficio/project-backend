@@ -47,14 +47,14 @@ async def finalizar_partida(game_id: int, winners: List[Dict]):
     finally:
         db.close()
 async def procesar_ultima_carta(game_id: int, room_id: int, game_state: Dict):
-    """Procesa la última carta del mazo y detecta el final de la partida"""
+    """Procesa la última carta del draft y detecta el final de la partida"""
     from app.sockets.socket_service import get_websocket_service
-    
-    # Check deck count from build_complete_game_state structure
-    deck_count = game_state.get("mazos", {}).get("deck", {}).get("count", 0)
-    
-    if deck_count == 1:
-        logger.info(f"Fin de mazo alcanzado en game_id {game_id}")
+
+    # Check draft count from build_complete_game_state structure
+    draft_count = game_state.get("mazos", {}).get("deck", {}).get("draft", [])
+
+    if not draft_count:
+        logger.info(f"Fin de draft alcanzado en game_id {game_id}")
         winners: List[Dict] = []
         
         # Find murderer and accomplice from estados_privados

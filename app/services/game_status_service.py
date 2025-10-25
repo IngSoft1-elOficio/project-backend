@@ -7,6 +7,7 @@ from app.schemas.game_status_schema import (
     STATUS_MAPPING
 )
 from typing import Dict, Any, Optional, List
+from collections import defaultdict
 
 def get_game_status_service(db: Session, game_id: int, user_id: int) -> GameStateView:
     """Recupera el estado de la partida y valida la pertenencia del usuario."""
@@ -190,6 +191,8 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
     
     # Build public player data
     jugadores = []
+    secretsFromAllPlayers = []  # Initialize here to collect all secrets
+    
     for player in players:
         # Count cards by state for this player
         hand_count = db.query(models.CardsXGame).filter(
@@ -218,14 +221,14 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
             models.CardsXGame.is_in == models.CardState.SECRET_SET
         ).count()
 
-        # Count revealed secrets (hidden == False)
-        revealed_secrets = db.query(models.CardsXGame).join(models.Card).filter(
+        # Get all secrets for this player (both hidden and revealed)
+        all_secrets = db.query(models.CardsXGame).join(models.Card).filter(
             models.CardsXGame.player_id == player.id,
             models.CardsXGame.id_game == game_id,
-            models.CardsXGame.is_in == models.CardState.SECRET_SET,
-            models.CardsXGame.hidden == False
+            models.CardsXGame.is_in == models.CardState.SECRET_SET
         ).all()
 
+        # Build list of revealed secrets for this player
         revealed_secrets_list = [
             {
                 "id": c.id,
@@ -233,8 +236,21 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
                 "img_src": c.card.img_src,
                 "type": c.card.type.value
             }
-            for c in revealed_secrets
+            for c in all_secrets if not c.hidden
         ]
+        
+        # Add all secrets to the global list with player info
+        for secret in all_secrets:
+            secretsFromAllPlayers.append({
+                "id": secret.id,
+                "player_id": player.id,
+                "player_name": player.name,
+                "name": secret.card.name,
+                "img_src": secret.card.img_src,
+                "type": secret.card.type.value,
+                "hidden": secret.hidden,
+                "position": secret.position
+            })
         
         jugadores.append({
             "player_id": player.id,
@@ -264,11 +280,11 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         .first()
     )
 
-   # Get top 3 cards from DECK (not DRAFT)
+   # Get top 3 cards from DRAFT
     get_draft = db.query(models.CardsXGame).join(models.Card).filter(
         models.CardsXGame.id_game == game_id,
-        models.CardsXGame.is_in == models.CardState.DECK
-    ).order_by(models.CardsXGame.position.desc()).limit(3).all()
+        models.CardsXGame.is_in == models.CardState.DRAFT
+    ).order_by(models.CardsXGame.position.asc()).all()
 
     draft = [
         {
@@ -299,19 +315,54 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         models.CardsXGame.is_in == models.CardState.DETECTIVE_SET
     ).all()
 
-    # Count manually by player
-    detective_counts = {}
+    # Group by player and position
+    player_sets = defaultdict(lambda: defaultdict(list))
     for c in detective_set_cards:
         if c.player_id is None:
             continue
-        detective_counts[c.player_id] = detective_counts.get(c.player_id, 0) + 1
+        player_sets[c.player_id][c.position].append(c)
 
-    for player_id, count in detective_counts.items():
-        sets.append({
-            "owner_id": player_id,
-            "set_type": models.CardState.DETECTIVE_SET.value,
-            "count": count
-        })
+    # Constants for special cards
+    WILDCARD_ID = 4
+    MIXABLE_IDS = {8, 10}
+
+    # Build the structured output
+    for player_id, positions in player_sets.items():
+        for pos, cards in positions.items():
+            card_ids = {c.id_card for c in cards}
+
+            # Determine set_type
+            if card_ids == MIXABLE_IDS:
+                set_type = "mixed"
+            elif len(card_ids) == 1:
+                # All cards are the same type
+                set_type = cards[0].card.name
+            elif WILDCARD_ID in card_ids:
+                # Contains a wildcard → optionally name by other card if clear
+                non_wildcards = [c for c in cards if c.id_card != WILDCARD_ID]
+                set_type = non_wildcards[0].card.name if non_wildcards else "wildcard"
+            else:
+                # Fallback case (multiple types that aren't mixable or wildcard)
+                set_type = "mixed"
+
+            sets.append({
+                "owner_id": player_id,
+                "position": pos,
+                "set_type": set_type,
+                "cards": [
+                    {
+                        "id": c.id,
+                        "name": c.card.name,
+                        "description": c.card.description,
+                        "type": c.card.type.value,
+                        "img_src": c.card.img_src
+                    }
+                    for c in cards
+                ],
+                "count": len(cards)
+            })
+
+    print(f"SETS to SEND: {sets}")
 
     # Build private states for each player
     estados_privados = {}
@@ -366,5 +417,6 @@ def build_complete_game_state(db: Session, game_id: int) -> Dict[str, Any]:
         "jugadores": jugadores,
         "mazos": mazos,
         "sets": sets, 
+        "secretsFromAllPlayers": secretsFromAllPlayers,
         "estados_privados": estados_privados
     }
