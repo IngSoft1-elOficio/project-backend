@@ -129,6 +129,8 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
 
         # Repartir cartas
         for i, p in enumerate(players_sorted):
+            if num_players == 2:
+                exclude_special.extend(['Point your suspicions', 'Blackmailed'])    
             game_cards = pick_cards([CardType.EVENT, CardType.DEVIUOS, CardType.DETECTIVE], 5, exclude_special)
             instant_cards = pick_cards([CardType.INSTANT], 1, exclude_special)
 
@@ -210,7 +212,11 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
 
         deck_pool = []
         for c in remaining_cards:
-            deck_pool.extend([c] * c.qty)
+            if num_players > 2:
+                deck_pool.extend([c] * c.qty)
+            else:
+                if c.name != 'Point your suspicions' and c.name != 'Blackmailed':
+                    deck_pool.extend([c] * c.qty)
 
         # Eliminar cartas que ya estan repartidas
         for mano in manos.values():
@@ -226,6 +232,15 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
                     break
 
         random.shuffle(deck_pool)
+
+        firstDiscard = deck_pool.pop(0) if deck_pool else None
+        if firstDiscard:
+            db.add(CardsXGame(
+                id_game=game.id,
+                id_card=firstDiscard.id,
+                is_in=CardState.DISCARD,
+                position=1
+            ))
 
         for pos, c in enumerate(deck_pool, start=1):
             db.add(CardsXGame(
