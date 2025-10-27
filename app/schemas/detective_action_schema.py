@@ -28,6 +28,7 @@ class RevealedSecret(BaseModel):
     secretId: int = Field(..., description="ID de la carta en CardsXGame")
     cardId: int = Field(..., description="ID de la carta (Card.id)")
     cardName: str = Field(..., description="Nombre de la carta revelada")
+    description: str = Field(..., description="Descripción de la carta")
     imgSrc: str = Field(..., description="Ruta de la imagen de la carta")
     position: int = Field(..., description="Posición del secreto en el set")
     
@@ -38,6 +39,7 @@ class RevealedSecret(BaseModel):
                 "secretId": 234,
                 "cardId": 2,
                 "cardName": "You are the Murderer!!",
+                "description": "You are the main suspect",
                 "imgSrc": "/assets/cards/murderer.png",
                 "position": 1
             }
@@ -67,6 +69,7 @@ class TransferredSecret(BaseModel):
     secretId: int = Field(..., description="ID de la carta en CardsXGame")
     cardId: int = Field(..., description="ID de la carta (Card.id)")
     cardName: str = Field(..., description="Nombre de la carta transferida")
+    description: str = Field(..., description="Descripción de la carta")
     imgSrc: str = Field(..., description="Ruta de la imagen de la carta")
     faceDown: bool = Field(True, description="Si el secreto se transfiere boca abajo (oculto para otros)")
     newPosition: int = Field(..., description="Nueva posición del secreto en el set del nuevo dueño")
@@ -79,6 +82,7 @@ class TransferredSecret(BaseModel):
                 "secretId": 234,
                 "cardId": 2,
                 "cardName": "You are the Murderer!!",
+                "description": "You are the main suspect",
                 "imgSrc": "/assets/cards/murderer.png",
                 "faceDown": True,
                 "newPosition": 4

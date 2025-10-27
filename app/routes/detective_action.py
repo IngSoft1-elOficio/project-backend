@@ -120,22 +120,29 @@ async def execute_detective_action(
             action_type = "unknown"
             action = "revealed"
             secret_id = None
+            secret_data = None
             target_player_id = request.targetPlayerId if request.targetPlayerId else request.executorId
             wildcard_used = False
             
             if response.effects.revealed:
                 action = "revealed"
-                secret_id = response.effects.revealed[0].secretId
-                target_player_id = response.effects.revealed[0].playerId
+                effect = response.effects.revealed[0]
+                secret_id = effect.secretId
+                target_player_id = effect.playerId
+                secret_data = effect.model_dump()
             elif response.effects.hidden:
                 action = "hidden"
-                secret_id = response.effects.hidden[0].secretId
-                target_player_id = response.effects.hidden[0].playerId
+                effect = response.effects.hidden[0]
+                secret_id = effect.secretId
+                target_player_id = effect.playerId
+                secret_data = effect.model_dump()
             elif response.effects.transferred:
                 action = "transferred"
-                secret_id = response.effects.transferred[0].secretId
-                target_player_id = response.effects.transferred[0].fromPlayerId
+                effect = response.effects.transferred[0]
+                secret_id = effect.secretId
+                target_player_id = effect.fromPlayerId
                 wildcard_used = True
+                secret_data = effect.model_dump()
             
             await ws_service.notificar_detective_action_complete(
                 room_id=room_id,
@@ -144,7 +151,8 @@ async def execute_detective_action(
                 target_player_id=target_player_id,
                 secret_id=secret_id,
                 action=action,
-                wildcard_used=wildcard_used
+                wildcard_used=wildcard_used,
+                secret_data=secret_data
             )
             logger.info(f"Emitted detective_action_complete to room {room_id}")
             
