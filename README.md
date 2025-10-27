@@ -61,6 +61,10 @@ o, en caso de error:
 ```bash
 python -m pytest
 ```
+con coverage: 
+```bash
+pytest --cov=app --cov-report=term-missing
+```
 
 # Run the development server
 
