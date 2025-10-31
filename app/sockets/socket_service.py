@@ -251,7 +251,9 @@ class WebSocketService:
         target_player_id: int,
         secret_id: Optional[int] = None,
         action: str = "revealed",  # "revealed" or "hidden"
-        wildcard_used: bool = False
+        wildcard_used: bool = False,
+        secret_data: Optional[dict] = None,
+        message: Optional[str] = None
     ):
         """Notify all players that detective action is complete"""
         mensaje = {
@@ -262,6 +264,8 @@ class WebSocketService:
             "secret_id": secret_id,
             "action": action,
             "wildcard_used": wildcard_used,
+            "secret_data": secret_data,
+            "message": message,
             "timestamp": datetime.now().isoformat()
         }
         await self.ws_manager.emit_to_room(room_id, "detective_action_complete", mensaje)
