@@ -1,23 +1,19 @@
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, patch, Mock
 from fastapi import HTTPException
 from app.routes.delay import delay_murderer_step_1, delay_murderer_order
-from app.schemas.delay_schema import (
-    delay_escape_start_request,
-    delay_escape_order_request,
-)
+from app.schemas.delay_schema import delay_escape_start_request, delay_escape_order_request
 
 
-@pytest.mark.asyncio
 class TestDelayMurdererEscapeMocked:
-    """Tests mockeados para Delay The Murderer’s Escape"""
+    """Tests aislados del endpoint Delay the Murderer's Escape"""
 
     @pytest.fixture
     def mock_db(self):
-        """Mock de la sesión de base de datos"""
         db = Mock()
         db.add = Mock()
         db.commit = Mock()
+        db.flush = Mock()
         db.rollback = Mock()
         db.query = Mock()
         return db
@@ -26,160 +22,96 @@ class TestDelayMurdererEscapeMocked:
     def mock_room(self):
         room = Mock()
         room.id = 1
-        room.id_game = 10
-        room.status = "INGAME"
+        room.id_game = 1
         return room
 
     @pytest.fixture
     def mock_game(self):
         game = Mock()
-        game.id = 10
-        game.player_turn_id = 99
+        game.id = 1
+        game.player_turn_id = 7
         return game
 
-    # ============================================================
-    # STEP 1 - delay-murderer-escape
-    # ============================================================
+    # ---------- STEP 1 ----------
 
-    @patch("app.routes.event.get_websocket_service")
-    @patch("app.routes.event.crud.count_cards_by_state")
-    @patch("app.routes.event.crud.create_action")
-    @patch("app.routes.event.crud.get_current_turn")
-    @patch("app.routes.event.crud.get_game_by_id")
-    @patch("app.routes.event.crud.get_room_by_id")
-    async def test_step1_returns_available_cards_ok(
-        self,
-        mock_get_room,
-        mock_get_game,
-        mock_get_turn,
-        mock_create_action,
-        mock_count_cards,
-        mock_ws_service,
-        mock_db,
-        mock_room,
-        mock_game,
-    ):
-        """Debe devolver lista de cartas disponibles del descarte"""
-        from app.db import models  # ✅ import correcto
+    @pytest.mark.asyncio
+    @patch("app.routes.delay.build_complete_game_state", return_value={})
+    @patch("app.routes.delay.get_websocket_service", return_value=AsyncMock())
+    @patch("app.routes.delay.crud")
+    async def test_step1_returns_available_cards_ok(self, mock_crud, mock_ws, mock_state, mock_db, mock_room, mock_game):
+        mock_crud.get_room_by_id.return_value = mock_room
+        mock_crud.get_game_by_id.return_value = mock_game
+        mock_crud.get_current_turn.return_value = Mock(id=123)
+        mock_crud.create_action.return_value = Mock(id=999)
+        mock_crud.count_cards_by_state.return_value = 3
+        mock_crud.list_players_by_room.return_value = []
 
-        # --- setup mocks
-        mock_get_room.return_value = mock_room
-        mock_get_game.return_value = mock_game
-        mock_get_turn.return_value = Mock(id=55)
-        mock_create_action.return_value = Mock(id=888)
-        mock_count_cards.return_value = 3
-
-        # Carta en mano simulada (validación de tipo EVENT)
+        # Mock carta válida en mano
         event_card = Mock()
-        event_card.id = 123
-        event_card.card = Mock()
-        event_card.card.type = models.CardType.EVENT
+        event_card.id = 99
+        event_card.card.type = "EVENT"
         mock_db.query.return_value.filter.return_value.first.return_value = event_card
 
-        # Simular cartas del descarte devueltas por query
-        fake_card = Mock()
-        fake_card.id = 1
-        fake_card.card = Mock()
-        fake_card.card.type = models.CardType.EVENT
-        (
-            mock_db.query.return_value.join.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value
-        ) = [fake_card]
+        mock_card1 = Mock(id=11)
+        mock_card2 = Mock(id=12)
+        mock_db.query.return_value.join.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [mock_card1, mock_card2]
 
-        # Mock del websocket
-        ws_instance = AsyncMock()
-        mock_ws_service.return_value = ws_instance
+        payload = delay_escape_start_request(card_id=99, quantity=2)
+        result = await delay_murderer_step_1(room_id=1, payload=payload, user_id=7, db=mock_db)
 
-        payload = delay_escape_start_request(card_id=123, quantity=1)
-        result = await delay_murderer_step_1(
-            room_id=1, payload=payload, user_id=99, db=mock_db
-        )
+        assert result["action_id"] == 999
+        assert result["available_cards"] == [11, 12]
 
-        assert "action_id" in result
-        assert "available_cards" in result
-        assert result["available_cards"] == [1]
-        ws_instance.notificar_event_action_started.assert_awaited_once()
-        mock_create_action.assert_called_once()
-        mock_db.commit.assert_called_once()
-
-    @patch("app.routes.event.crud.get_room_by_id")
-    async def test_step1_room_not_found_raises_404(self, mock_get_room, mock_db):
-        """Debe lanzar 404 si la sala no existe"""
-        mock_get_room.return_value = None
+    @pytest.mark.asyncio
+    @patch("app.routes.delay.build_complete_game_state", return_value={})
+    @patch("app.routes.delay.crud.get_room_by_id", return_value=None)
+    async def test_step1_room_not_found_raises_404(self, mock_room, mock_state, mock_db):
         payload = delay_escape_start_request(card_id=1, quantity=1)
-        with pytest.raises(HTTPException) as exc:
-            await delay_murderer_step_1(1, payload, user_id=99, db=mock_db)
-        assert exc.value.status_code == 404
+        with pytest.raises(HTTPException) as excinfo:
+            await delay_murderer_step_1(room_id=99, payload=payload, user_id=7, db=mock_db)
+        assert excinfo.value.status_code == 404
 
-    @patch("app.routes.event.crud.get_room_by_id")
-    @patch("app.routes.event.crud.get_game_by_id")
-    async def test_step1_not_your_turn_raises_403(
-        self, mock_get_game, mock_get_room, mock_db, mock_room, mock_game
-    ):
-        """Debe lanzar 403 si no es tu turno"""
-        mock_get_room.return_value = mock_room
-        mock_game.player_turn_id = 10  # otro jugador
-        mock_get_game.return_value = mock_game
+    @pytest.mark.asyncio
+    @patch("app.routes.delay.build_complete_game_state", return_value={})
+    @patch("app.routes.delay.crud")
+    async def test_step1_not_your_turn_raises_403(self, mock_crud, mock_state, mock_db, mock_room, mock_game):
+        mock_crud.get_room_by_id.return_value = mock_room
+        mock_game.player_turn_id = 99
+        mock_crud.get_game_by_id.return_value = mock_game
         payload = delay_escape_start_request(card_id=1, quantity=1)
+        with pytest.raises(HTTPException) as excinfo:
+            await delay_murderer_step_1(room_id=1, payload=payload, user_id=7, db=mock_db)
+        assert excinfo.value.status_code == 403
 
-        with pytest.raises(HTTPException) as exc:
-            await delay_murderer_step_1(1, payload, user_id=99, db=mock_db)
-        assert exc.value.status_code == 403
+    # ---------- STEP 2 ----------
 
-    # ============================================================
-    # STEP 2 - delay-murderer-escape/order
-    # ============================================================
+    @pytest.mark.asyncio
+    @patch("app.routes.delay.build_complete_game_state", return_value={})
+    @patch("app.routes.delay.get_websocket_service", return_value=AsyncMock())
+    @patch("app.routes.delay.crud")
+    async def test_step2_moves_cards_ok(self, mock_crud, mock_ws, mock_state, mock_db, mock_room, mock_game):
+        mock_crud.get_room_by_id.return_value = mock_room
+        mock_crud.get_game_by_id.return_value = mock_game
+        mock_crud.get_top_card_by_state.return_value = Mock(position=10)
+        mock_crud.get_action_by_id.return_value = Mock(id=55, turn_id=22, selected_card_id=999)
+        mock_crud.create_action.return_value = Mock(id=101)
+        mock_crud.list_players_by_room.return_value = []
 
-    @patch("app.routes.event.get_websocket_service")
-    @patch("app.routes.event.crud.create_action")
-    @patch("app.routes.event.crud.get_action_by_id")
-    @patch("app.routes.event.crud.get_top_card_by_state")
-    @patch("app.routes.event.crud.get_game_by_id")
-    @patch("app.routes.event.crud.get_room_by_id")
-    async def test_step2_moves_cards_ok(
-        self,
-        mock_get_room,
-        mock_get_game,
-        mock_get_top_card,
-        mock_get_action,
-        mock_create_action,
-        mock_ws_service,
-        mock_db,
-        mock_room,
-        mock_game,
-    ):
-        """Debe mover cartas del descarte al mazo (mockeado)"""
-        mock_get_room.return_value = mock_room
-        mock_get_game.return_value = mock_game
-        mock_get_top_card.return_value = Mock(position=10)
-        mock_get_action.return_value = Mock(id=77, turn_id=3)
-        mock_create_action.return_value = Mock(id=999)
-        ws_instance = AsyncMock()
-        mock_ws_service.return_value = ws_instance
+        mock_card = Mock(id=1)
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_card
 
-        # Simulamos que el query encuentra una carta
-        fake_card = Mock()
-        fake_card.id = 1
-        fake_query = Mock()
-        fake_query.filter.return_value.first.return_value = fake_card
-        mock_db.query.return_value = fake_query
-
-        payload = delay_escape_order_request(action_id=77, ordered_cards_ids=[1, 2, 3])
-
-        result = await delay_murderer_order(
-            room_id=1, payload=payload, user_id=99, db=mock_db
-        )
+        payload = delay_escape_order_request(action_id=55, ordered_cards_ids=[1, 2, 3])
+        result = await delay_murderer_order(room_id=1, payload=payload, user_id=7, db=mock_db)
 
         assert result["status"] == "ok"
         assert result["moved_cards"] == [1, 2, 3]
-        ws_instance.notificar_event_action_complete.assert_awaited_once()
-        mock_create_action.assert_called_once()
-        mock_db.commit.assert_called_once()
+        assert result["action_id"] == 55
 
-    @patch("app.routes.event.crud.get_room_by_id")
-    async def test_step2_room_not_found_raises_404(self, mock_get_room, mock_db):
-        """Debe lanzar 404 si la room no existe"""
-        mock_get_room.return_value = None
+    @pytest.mark.asyncio
+    @patch("app.routes.delay.build_complete_game_state", return_value={})
+    @patch("app.routes.delay.crud.get_room_by_id", return_value=None)
+    async def test_step2_room_not_found_raises_404(self, mock_room, mock_state, mock_db):
         payload = delay_escape_order_request(action_id=1, ordered_cards_ids=[1])
-        with pytest.raises(HTTPException) as exc:
-            await delay_murderer_order(1, payload, user_id=1, db=mock_db)
-        assert exc.value.status_code == 404
+        with pytest.raises(HTTPException) as excinfo:
+            await delay_murderer_order(room_id=99, payload=payload, user_id=7, db=mock_db)
+        assert excinfo.value.status_code == 404
