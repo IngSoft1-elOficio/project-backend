@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from app.db.database import SessionLocal
 from app.db import crud, models
-from app.schemas.event_schema import (
+from app.schemas.one_more_schema import (
     OneMoreStartRequest, OneMoreStartResponse,
     OneMoreSecondRequest, OneMoreSecondResponse,
     OneMoreThirdRequest, OneMoreThirdResponse
