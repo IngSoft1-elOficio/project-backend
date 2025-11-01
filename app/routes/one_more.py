@@ -70,6 +70,14 @@ async def one_more_step_1(
         )
     
     try:
+
+        #se desarta
+        max_discard_pos = crud.get_max_position_by_state(db, room.id_game, models.CardState.DISCARD)
+        event_card.is_in = models.CardState.DISCARD
+        event_card.player_id = None
+        event_card.position = max_discard_pos + 1
+        event_card.hidden = False
+        
         # Crear registro en actions_per_turn
         current_turn = crud.get_current_turn(db, room.id_game)
         action_data = {
@@ -91,7 +99,13 @@ async def one_more_step_1(
         secrets = db.query(models.CardsXGame).filter(models.CardsXGame.id_game == game.id, 
                                                     models.CardsXGame.is_in == models.CardState.SECRET_SET,
                                                     models.CardsXGame.hidden == False).all()
-        available_secrets_ids = [s.id for s in secrets]
+        available_secrets = [
+            {
+                "id": s.id,
+                "owner_id": s.player_id,
+            }
+            for s in secrets
+        ]
 
         #notifico a todos la carta q se esta jugando
         ws_service = get_websocket_service()
@@ -103,9 +117,22 @@ async def one_more_step_1(
             step = "selecting_secret"
         )
 
+        #emito estado privado y público
+        game_state = build_complete_game_state(db, game.id)
+        
+        await ws_service.notificar_estado_publico(
+            room_id=room_id,
+            game_state=game_state
+        )
+        
+        await ws_service.notificar_estados_privados(
+            room_id=room_id,
+            estados_privados=game_state.get("estados_privados", {})
+        )
+
         return {
             "action_id" : action.id,
-            "available_secrets" : available_secrets_ids
+            "available_secrets" : available_secrets
         }
 
     except Exception as e:
@@ -285,7 +312,6 @@ async def one_more_step_3(
         success = False
 
     if success:
-        game_state = build_complete_game_state(db, room.id_game)
         ws_service = get_websocket_service()
 
         await ws_service.notificar_event_step_update(
@@ -298,6 +324,16 @@ async def one_more_step_3(
         )
         logging.info(f"Emitted event step update {room_id}")
 
+        # Reconstruir estado completo
+        game_state = build_complete_game_state(db, room.id_game)
+
+        # Emitir estados privados (para todos los jugadores conectados)
+        await ws_service.notificar_estados_privados(
+            room_id=room_id,
+            estados_privados=game_state.get("estados_privados", {})
+        )
+
+
         await ws_service.notificar_event_action_complete(
             room_id=room_id,
             player_id=user_id,
@@ -305,9 +341,7 @@ async def one_more_step_3(
         )
         logging.info(f"Emitted event action complete {room_id}")
 
-        await ws_service.notificar_estado_partida(
-            room_id=room_id, jugador_que_actuo=user_id, game_state=game_state
-        )
+   
         logging.info(f"Emitted state {room_id}")
 
     return OneMoreThirdResponse(success=success)

@@ -1,5 +1,9 @@
 from pydantic import BaseModel
 
+class AvailableSecret(BaseModel):
+    """Representa un secreto revelado disponible para elegir."""
+    id: int
+    owner_id: int
 
 # And then was one more (Step 1)
 class OneMoreStartRequest(BaseModel):
@@ -8,7 +12,7 @@ class OneMoreStartRequest(BaseModel):
 
 class OneMoreStartResponse(BaseModel):
     action_id: int
-    available_secrets: list[int]
+    available_secrets: list[AvailableSecret]
 
 # And then was one more (Step 2)
 class OneMoreSecondRequest(BaseModel):
