@@ -4,7 +4,7 @@ from app.db.database import SessionLocal
 from pydantic import BaseModel
 from app.db.models import Game, Room, CardsXGame, CardState, Player, RoomStatus, Card, ActionsPerTurn
 from app.sockets.socket_service import get_websocket_service
-from app.schemas.event_schema import (delay_escape_start_request, delay_escape_start_response, delay_escape_order_request,delay_escape_order_response)
+from app.schemas.delay_schema import (delay_escape_start_request, delay_escape_start_response, delay_escape_order_request,delay_escape_order_response)
 from datetime import datetime
 from app.db import crud, models
 from app.services.game_status_service import build_complete_game_state
@@ -235,6 +235,12 @@ async def delay_murderer_order(
             room_id=room_id,
             game_state=game_state
         )
+
+        await ws_service.notificar_estados_privados(
+        room_id=room_id,
+        estados_privados=game_state.get("estados_privados", {})
+        )
+
 
         return {
             "status": "ok",

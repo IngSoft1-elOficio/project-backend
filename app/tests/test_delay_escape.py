@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from fastapi import HTTPException
-from app.routes.event import delay_murderer_step_1, delay_murderer_order
-from app.schemas.event_schema import (
+from app.routes.delay import delay_murderer_step_1, delay_murderer_order
+from app.schemas.delay_schema import (
     delay_escape_start_request,
     delay_escape_order_request,
 )
