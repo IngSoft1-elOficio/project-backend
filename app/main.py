@@ -62,7 +62,7 @@ app.include_router(finish_turn.router)
 from app.routes import take_deck
 app.include_router(take_deck.router)
 from app.routes import one_more
-app.include_router(event.router)
+app.include_router(one_more.router)
 from app.routes import play_detective_set
 app.include_router(play_detective_set.router)
 from app.routes import detective_action
