@@ -114,11 +114,13 @@ async def delay_murderer_step_1(
         available_cards_id = [card.id for card in last_cards]
 
         #notifico q se jugo la carta
+        game_state = build_complete_game_state(db, game.id)
+
         ws_service = get_websocket_service()
         await ws_service.notificar_event_action_started(
             room_id = room_id,
             player_id = user_id,
-            event_type = "delay_murderer",
+            event_type = "delay_murderer_escape",
             card_name = "Delay The Murderer's Escape",
             step = "selecting_order"
         )
@@ -219,10 +221,6 @@ async def delay_murderer_order(
 
       
         db.commit()
-
-        game_state = build_complete_game_state(db, game.id)
-
-        
 
         # transmitir ws
         ws_service = get_websocket_service()
