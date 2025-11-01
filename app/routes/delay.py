@@ -123,6 +123,13 @@ async def delay_murderer_step_1(
             step = "selecting_order"
         )
 
+        await ws_service.notificar_estados_privados(
+            room_id=room_id,
+            estados_privados=game_state.get("estados_privados", {})
+        )
+
+
+
         return {
             "action_id" : action.id,
             "available_cards" : available_cards_id
@@ -197,7 +204,25 @@ async def delay_murderer_order(
         }
 
         completion_action = crud.create_action(db, completion_action_data)
+
+        # Remover la carta del juego 
+        event_card = (
+            db.query(models.CardsXGame)
+            .filter(
+                models.CardsXGame.id == parent_action.selected_card_id,
+                models.CardsXGame.id_game == room.id_game,
+            )
+            .first()
+        )
+        if event_card:
+            event_card.is_in = models.CardState.REMOVED  # fuera del juego
+
+      
         db.commit()
+
+        game_state = build_complete_game_state(db, game.id)
+
+        
 
         # transmitir ws
         ws_service = get_websocket_service()
@@ -205,6 +230,12 @@ async def delay_murderer_order(
             room_id=room_id,
             player_id=user_id,
             event_type="delay_murderer_escape",
+        )
+
+        game_state = build_complete_game_state(db, game.id)
+        await ws_service.notificar_estado_publico(
+            room_id=room_id,
+            game_state=game_state
         )
 
         return {
