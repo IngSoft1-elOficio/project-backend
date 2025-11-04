@@ -73,6 +73,8 @@ from app.routes import leave_game
 app.include_router(leave_game.router)
 from app.routes import another_victim
 app.include_router(another_victim.router)
+from app.routes import early_train_to_paddington
+app.include_router(early_train_to_paddington.router)
 
 # Aplicación ASGI con Socket.IO
 socket_app = socketio.ASGIApp(sio, app)
