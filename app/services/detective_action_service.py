@@ -557,6 +557,7 @@ class DetectiveActionService:
             secretId=secret_card.id,
             cardId=card.id,
             cardName=card.name,
+            description=card.description,
             imgSrc=card.img_src,
             position=secret_card.position
         )
@@ -645,6 +646,7 @@ class DetectiveActionService:
             secretId=secret_card.id,
             cardId=card.id,
             cardName=card.name,
+            description=card.description,
             imgSrc=card.img_src,
             faceDown=True,
             newPosition=new_position

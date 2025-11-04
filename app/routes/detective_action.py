@@ -115,27 +115,35 @@ async def execute_detective_action(
             
         else:
             # PASO 2 o acción de 1 paso: Acción completada
-            logger.info(f"Action completed - emitting results")
-            
             action_type = "unknown"
             action = "revealed"
             secret_id = None
+            secret_data = None
             target_player_id = request.targetPlayerId if request.targetPlayerId else request.executorId
             wildcard_used = False
+            message = None
             
-            if response.effects.revealed:
+            if response.effects.transferred:
+                action = "transferred"
+                effect = response.effects.transferred[0]
+                secret_id = effect.secretId
+                target_player_id = effect.fromPlayerId
+                wildcard_used = True
+                secret_data = effect.model_dump()
+                # Solo enviar mensaje detallado para Satterthwaite con comodín (transferred)
+                message = f"Secreto ({effect.cardName}) - {effect.description} - revelado y transferido a la mano del jugador {effect.toPlayerId} en la posición {effect.newPosition}. Acción de detective terminada."
+            elif response.effects.revealed:
                 action = "revealed"
-                secret_id = response.effects.revealed[0].secretId
-                target_player_id = response.effects.revealed[0].playerId
+                effect = response.effects.revealed[0]
+                secret_id = effect.secretId
+                target_player_id = effect.playerId
+                secret_data = effect.model_dump()
             elif response.effects.hidden:
                 action = "hidden"
-                secret_id = response.effects.hidden[0].secretId
-                target_player_id = response.effects.hidden[0].playerId
-            elif response.effects.transferred:
-                action = "transferred"
-                secret_id = response.effects.transferred[0].secretId
-                target_player_id = response.effects.transferred[0].fromPlayerId
-                wildcard_used = True
+                effect = response.effects.hidden[0]
+                secret_id = effect.secretId
+                target_player_id = effect.playerId
+                secret_data = effect.model_dump()
             
             await ws_service.notificar_detective_action_complete(
                 room_id=room_id,
@@ -144,20 +152,18 @@ async def execute_detective_action(
                 target_player_id=target_player_id,
                 secret_id=secret_id,
                 action=action,
-                wildcard_used=wildcard_used
+                wildcard_used=wildcard_used,
+                secret_data=secret_data,
+                message=message
             )
-            logger.info(f"Emitted detective_action_complete to room {room_id}")
             
             await ws_service.notificar_estado_partida(
                 room_id=room_id,
                 jugador_que_actuo=request.executorId,
                 game_state=game_state
             )
-            logger.info(f"Emitted game state to room {room_id}")
         
     except Exception as e:
         logger.error(f"Error emitting WebSocket events: {str(e)}")
-    
-    logger.info(f"Response: {response.model_dump()}")
     
     return response
