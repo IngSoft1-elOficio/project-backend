@@ -77,6 +77,8 @@ from app.routes import another_victim
 app.include_router(another_victim.router)
 from app.routes import cards_off_the_table
 app.include_router(cards_off_the_table.router)
+from app.routes import add_to_set
+app.include_router(add_to_set.router)
 
 # Aplicación ASGI con Socket.IO
 socket_app = socketio.ASGIApp(sio, app)
