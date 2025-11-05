@@ -314,7 +314,7 @@ class DetectiveActionService:
                 detail=f"Action is not pending (current status: {action.result.value})"
             )
         
-        if action.action_type != ActionType.DETECTIVE_SET:
+        if action.action_type not in [ActionType.DETECTIVE_SET, ActionType.ADD_DETECTIVE]:
             raise HTTPException(
                 status_code=400,
                 detail="Action is not a detective set action"
