@@ -52,7 +52,6 @@ async def add_to_set(
     game_id = room.id_game
     
     # 2. Ejecutar la lógica de negocio en el servicio
-    # En el try-catch, línea 40-42:
     try:
         service = DetectiveSetService(db)
         action_id, next_action = service.add_detective_to_set(game_id, request)

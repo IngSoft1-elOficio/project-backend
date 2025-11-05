@@ -136,13 +136,18 @@ class DetectiveSetService:
         self._validate_set_exists(game_id, player.id, request.setPosition)
         
         # 9. Agregar la carta al set
-        crud.update_cards_state(
-            self.db, 
-            [card], 
-            CardState.DETECTIVE_SET, 
-            request.setPosition, 
-            hidden=False
-        )
+        try:
+            crud.update_cards_state(
+                self.db, 
+                [card], 
+                CardState.DETECTIVE_SET, 
+                request.setPosition, 
+                hidden=False
+            )
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
         
         # 10. Crear la acción ADD_DETECTIVE
         action = self._create_add_detective_action(
@@ -162,7 +167,12 @@ class DetectiveSetService:
         )
         
         # 12. Commit
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
         
         return action.id, next_action
 
