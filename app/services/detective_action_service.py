@@ -2,7 +2,7 @@
 from sqlalchemy.orm import Session
 from typing import Tuple, Optional, List
 from fastapi import HTTPException
-
+import logging
 from ..db.models import (
     Game, Player, CardsXGame, ActionsPerTurn, Card,
     CardState, ActionType, ActionResult
@@ -13,7 +13,9 @@ from ..schemas.detective_action_schema import (
     RevealedSecret, HiddenSecret, TransferredSecret, EffectsSummary
 )
 from ..schemas.detective_set_schema import SetType, NextAction, NextActionType, NextActionMetadata, SecretInfo
+from ..services.game_service import win_for_reveal
 
+logger = logging.getLogger(__name__)
 
 class DetectiveActionService:
     """Servicio para ejecutar acciones de detective pendientes"""
@@ -37,10 +39,11 @@ class DetectiveActionService:
     def __init__(self, db: Session):
         self.db = db
     
-    def execute_detective_action(
+    async def execute_detective_action(
         self,
         game_id: int,
-        request: DetectiveActionRequest
+        request: DetectiveActionRequest,
+        room_id: int
     ) -> DetectiveActionResponse:
         """
         Ejecuta una acción de detective pendiente.
@@ -65,7 +68,7 @@ class DetectiveActionService:
                 return self._handle_target_selection(game_id, action, request, set_type, owner_id)
             elif request.secretId and not request.targetPlayerId:
                 # PASO 2: Target selecciona secreto
-                return self._handle_secret_selection(game_id, action, request, set_type, owner_id)
+                return await self._handle_secret_selection(game_id, action, request, set_type, owner_id, room_id)
             else:
                 raise HTTPException(
                     status_code=400,
@@ -73,15 +76,16 @@ class DetectiveActionService:
                 )
         
         # Detectives de 1 paso (Marple, Poirot, Pyne)
-        return self._handle_single_step_action(game_id, action, request, set_type, owner_id)
+        return await self._handle_single_step_action(game_id, action, request, set_type, owner_id, room_id)
     
-    def _handle_single_step_action(
+    async def _handle_single_step_action(
         self,
         game_id: int,
         action: ActionsPerTurn,
         request: DetectiveActionRequest,
         set_type: SetType,
-        owner_id: int
+        owner_id: int,
+        room_id: int
     ) -> DetectiveActionResponse:
         """Maneja detectives de 1 paso (Marple, Poirot, Pyne)"""
         self._validate_executor(request.executorId, owner_id, set_type, request.targetPlayerId)
@@ -93,7 +97,7 @@ class DetectiveActionService:
         
         has_wildcard = self._check_action_has_wildcard(action)
         
-        effects = self._apply_effect(
+        effects = await self._apply_effect(
             set_type=set_type,
             secret_card=secret_card,
             target_player_id=target_player_id,
@@ -101,7 +105,8 @@ class DetectiveActionService:
             has_wildcard=has_wildcard,
             game_id=game_id,
             action=action,
-            executor_id=request.executorId
+            executor_id=request.executorId,
+            room_id=room_id
         )
         
         crud.update_action_result(self.db, action.id, ActionResult.SUCCESS)
@@ -181,13 +186,14 @@ class DetectiveActionService:
             effects=EffectsSummary(revealed=[], hidden=[], transferred=[])
         )
     
-    def _handle_secret_selection(
+    async def _handle_secret_selection(
         self,
         game_id: int,
         action: ActionsPerTurn,
         request: DetectiveActionRequest,
         set_type: SetType,
-        owner_id: int
+        owner_id: int,
+        room_id: int
     ) -> DetectiveActionResponse:
         """
         PASO 2: Target selecciona su propio secreto.
@@ -223,7 +229,7 @@ class DetectiveActionService:
         has_wildcard = self._check_action_has_wildcard(action)
         
         # Aplicar el efecto
-        effects = self._apply_effect(
+        effects = await self._apply_effect(
             set_type=set_type,
             secret_card=secret_card,
             target_player_id=target_player_id,
@@ -231,7 +237,8 @@ class DetectiveActionService:
             has_wildcard=has_wildcard,
             game_id=game_id,
             action=action,
-            executor_id=request.executorId
+            executor_id=request.executorId,
+            room_id=room_id
         )
         
         # Marcar la acción como completada
@@ -476,7 +483,7 @@ class DetectiveActionService:
         
         return False
     
-    def _apply_effect(
+    async def _apply_effect(
         self,
         set_type: SetType,
         secret_card: CardsXGame,
@@ -485,7 +492,8 @@ class DetectiveActionService:
         has_wildcard: bool,
         game_id: int,
         action: ActionsPerTurn,
-        executor_id: int
+        executor_id: int,
+        room_id: int
     ) -> EffectsSummary:
         """Aplica el efecto correspondiente según el tipo de set"""
         effects = EffectsSummary()
@@ -498,7 +506,7 @@ class DetectiveActionService:
         
         elif set_type == SetType.SATTERTHWAITE:
             # Mr. Satterthwaite: REVELA y opcionalmente TRANSFIERE
-            revealed = self._apply_reveal_effect(secret_card, target_player_id, action, executor_id)
+            revealed = await self._apply_reveal_effect(secret_card, target_player_id, action, executor_id, room_id)
             effects.revealed.append(revealed)
             
             if has_wildcard:
@@ -515,18 +523,20 @@ class DetectiveActionService:
         
         else:
             # Poirot, Marple, Beresford, Eileen: REVELAN
-            effects.revealed.append(
-                self._apply_reveal_effect(secret_card, target_player_id, action, executor_id)
+            revealed = await self._apply_reveal_effect(
+                secret_card, target_player_id, action, executor_id, room_id
             )
+            effects.revealed.append(revealed)
         
         return effects
     
-    def _apply_reveal_effect(
+    async def _apply_reveal_effect(
         self,
         secret_card: CardsXGame,
         target_player_id: int,
         action: ActionsPerTurn,
-        executor_id: int
+        executor_id: int,
+        room_id: int
     ) -> RevealedSecret:
         """Revela un secreto (hidden=False)"""
         # Obtener info de la carta
@@ -551,6 +561,17 @@ class DetectiveActionService:
             "position_card": secret_card.position,
             "to_be_hidden": 0  # Se está revelando (False = 0)
         })
+
+        #Verificar si se revelo el asesino
+        game_ended = await win_for_reveal(
+            db=self.db,
+            game_id=action.id_game,
+            room_id=room_id,
+            revealed_card=secret_card
+        )
+        
+        if game_ended:
+            logger.info(f"Se termino el juego por revelar al asesino")
         
         return RevealedSecret(
             playerId=target_player_id,
