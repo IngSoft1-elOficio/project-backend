@@ -61,6 +61,8 @@ from app.routes import finish_turn
 app.include_router(finish_turn.router)
 from app.routes import take_deck
 app.include_router(take_deck.router)
+from app.routes import one_more
+app.include_router(one_more.router)
 from app.routes import play_detective_set
 app.include_router(play_detective_set.router)
 from app.routes import detective_action
@@ -75,6 +77,9 @@ from app.routes import another_victim
 app.include_router(another_victim.router)
 from app.routes import delay
 app.include_router(delay.router)
+from app.routes import cards_off_the_table
+app.include_router(cards_off_the_table.router)
+
 
 # Aplicación ASGI con Socket.IO
 socket_app = socketio.ASGIApp(sio, app)

@@ -5,6 +5,7 @@ from datetime import datetime
 
 from app.routes.another_victim import another_victim, VictimRequest
 from app.db.models import CardState, TurnStatus, ActionType, ActionResult
+from app.schemas.detective_set_schema import SetType
 
 
 class TestAnotherVictim:
@@ -66,7 +67,7 @@ class TestAnotherVictim:
     
     @pytest.fixture
     def mock_victim_set_cards(self):
-        """Mock de las cartas del set del jugador víctima"""
+        """Mock de las cartas del set del jugador víctima (Poirot set)"""
         cards = []
         for i in range(3):
             card = Mock()
@@ -75,11 +76,64 @@ class TestAnotherVictim:
             card.id_game = 1
             card.is_in = CardState.DETECTIVE_SET
             card.position = 1
+            card.id_card = 11  # Hercule Poirot ID
             card.card = Mock()
-            card.card.name = f"Card {i}"
+            card.card.name = f"Hercule Poirot"
             card.card.type = Mock()
-            card.card.type.value = "VICTIM"
+            card.card.type.value = "DETECTIVE"
             cards.append(card)
+        return cards
+    
+    @pytest.fixture
+    def mock_marple_set_cards(self):
+        """Mock de un set de Miss Marple"""
+        cards = []
+        for i in range(3):
+            card = Mock()
+            card.id = i + 1
+            card.player_id = 20
+            card.id_game = 1
+            card.is_in = CardState.DETECTIVE_SET
+            card.position = 1
+            card.id_card = 6  # Miss Marple ID
+            card.card = Mock()
+            card.card.name = "Miss Marple"
+            card.card.type = Mock()
+            card.card.type.value = "DETECTIVE"
+            cards.append(card)
+        return cards
+    
+    @pytest.fixture
+    def mock_beresford_set_cards(self):
+        """Mock de un set de Beresford"""
+        cards = []
+        # Tommy Beresford
+        card1 = Mock()
+        card1.id = 1
+        card1.player_id = 20
+        card1.id_game = 1
+        card1.is_in = CardState.DETECTIVE_SET
+        card1.position = 1
+        card1.id_card = 8  # Tommy Beresford ID
+        card1.card = Mock()
+        card1.card.name = "Tommy Beresford"
+        card1.card.type = Mock()
+        card1.card.type.value = "DETECTIVE"
+        
+        # Tuppence Beresford
+        card2 = Mock()
+        card2.id = 2
+        card2.player_id = 20
+        card2.id_game = 1
+        card2.is_in = CardState.DETECTIVE_SET
+        card2.position = 1
+        card2.id_card = 10  # Tuppence Beresford ID
+        card2.card = Mock()
+        card2.card.name = "Tuppence Beresford"
+        card2.card.type = Mock()
+        card2.card.type.value = "DETECTIVE"
+        
+        cards.extend([card1, card2])
         return cards
     
     @pytest.fixture
@@ -92,6 +146,7 @@ class TestAnotherVictim:
         card.is_in = CardState.HAND
         card.card = Mock()
         card.card.id = 13
+        card.card.name = "Another Victim"
         return card
     
     def setup_query_chain(self, mock_db, responses):
@@ -149,7 +204,7 @@ class TestAnotherVictim:
         self, mock_db, mock_room, mock_game, mock_actor, 
         mock_victim, mock_turn, mock_victim_set_cards, mock_another_victim_card
     ):
-        """Test de caso exitoso: robo de set"""
+        """Test de caso exitoso: robo de set de Poirot"""
         
         # Configurar respuestas en el orden exacto del código
         self.setup_query_chain(mock_db, [
@@ -160,15 +215,31 @@ class TestAnotherVictim:
             mock_victim,                # Victim query
             mock_victim_set_cards,      # victim_set_cards.all()
             mock_another_victim_card,   # Another Victim card query
-            (5,)                        # max_discard_position
+            (5,),                       # max_discard_position
+            None                        # max_actor_set_position (no sets yet)
         ])
         
         # Mock websocket service
         mock_ws = AsyncMock()
         mock_ws.notificar_event_step_update = AsyncMock()
-        mock_ws.notificar_event_action_complete = AsyncMock()
+        mock_ws.notificar_detective_action_started = AsyncMock()
         mock_ws.notificar_estado_publico = AsyncMock()
         mock_ws.notificar_estados_privados = AsyncMock()
+        
+        # Mock detective service
+        mock_detective_service = Mock()
+        mock_detective_action = Mock()
+        mock_detective_action.id = 999
+        mock_detective_action.parent_action_id = None
+        mock_detective_service._create_detective_action = Mock(return_value=mock_detective_action)
+        
+        from app.schemas.detective_set_schema import NextAction, NextActionType, NextActionMetadata
+        mock_next_action = NextAction(
+            type=NextActionType.SELECT_PLAYER_AND_SECRET,
+            allowedPlayers=[20, 30],
+            metadata=NextActionMetadata(hasWildcard=False, secretsPool=[])
+        )
+        mock_detective_service._determine_next_action = Mock(return_value=mock_next_action)
         
         with patch('app.routes.another_victim.get_websocket_service', return_value=mock_ws), \
              patch('app.routes.another_victim.build_complete_game_state', return_value={
@@ -178,7 +249,8 @@ class TestAnotherVictim:
                  "jugadores": [],
                  "mazos": {},
                  "estados_privados": {}
-             }):
+             }), \
+             patch('app.routes.another_victim.DetectiveSetService', return_value=mock_detective_service):
             
             request = VictimRequest(originalOwnerId=20, setPosition=1)
             
@@ -195,6 +267,8 @@ class TestAnotherVictim:
             assert response.transferredSet.newOwnerId == 10
             assert response.transferredSet.originalOwnerId == 20
             assert len(response.transferredSet.cards) == 3
+            assert response.actionId == 999
+            assert response.nextAction.type == NextActionType.SELECT_PLAYER_AND_SECRET
             
             # Verificar que se llamó a commit
             mock_db.commit.assert_called_once()
@@ -202,9 +276,18 @@ class TestAnotherVictim:
             # Verificar que se crearon las acciones correctas
             assert mock_db.add.call_count >= 3  # event, steal, moves
             
+            # Verificar que se llamó al servicio de detective
+            mock_detective_service._create_detective_action.assert_called_once()
+            mock_detective_service._determine_next_action.assert_called_once()
+            
+            # Verificar que se llamó con el tipo correcto
+            call_args = mock_detective_service._determine_next_action.call_args
+            assert call_args.kwargs['set_type'] == SetType.POIROT
+            assert call_args.kwargs['has_wildcard'] is False
+            
             # Verificar notificaciones WebSocket
             mock_ws.notificar_event_step_update.assert_called_once()
-            mock_ws.notificar_event_action_complete.assert_called_once()
+            mock_ws.notificar_detective_action_started.assert_called_once()
             mock_ws.notificar_estado_publico.assert_called_once()
             mock_ws.notificar_estados_privados.assert_called_once()
             
@@ -214,6 +297,60 @@ class TestAnotherVictim:
             assert call_args.kwargs['player_id'] == 10
             assert call_args.kwargs['event_type'] == "another_victim"
             assert call_args.kwargs['step'] == "set_stolen"
+    
+    @pytest.mark.asyncio
+    async def test_another_victim_beresford_set(
+        self, mock_db, mock_room, mock_game, mock_actor, 
+        mock_victim, mock_turn, mock_beresford_set_cards, mock_another_victim_card
+    ):
+        """Test robo de set de Beresford"""
+        
+        self.setup_query_chain(mock_db, [
+            mock_room,
+            mock_game,
+            mock_actor,
+            mock_turn,
+            mock_victim,
+            mock_beresford_set_cards,
+            mock_another_victim_card,
+            (5,),
+            None
+        ])
+        
+        mock_ws = AsyncMock()
+        mock_detective_service = Mock()
+        mock_detective_action = Mock()
+        mock_detective_action.id = 888
+        mock_detective_action.parent_action_id = None
+        mock_detective_service._create_detective_action = Mock(return_value=mock_detective_action)
+        
+        from app.schemas.detective_set_schema import NextAction, NextActionType, NextActionMetadata
+        mock_next_action = NextAction(
+            type=NextActionType.SELECT_PLAYER,
+            allowedPlayers=[20, 30],
+            metadata=NextActionMetadata(hasWildcard=False)
+        )
+        mock_detective_service._determine_next_action = Mock(return_value=mock_next_action)
+        
+        with patch('app.routes.another_victim.get_websocket_service', return_value=mock_ws), \
+             patch('app.routes.another_victim.build_complete_game_state', return_value={"estados_privados": {}}), \
+             patch('app.routes.another_victim.DetectiveSetService', return_value=mock_detective_service):
+            
+            request = VictimRequest(originalOwnerId=20, setPosition=1)
+            
+            response = await another_victim(
+                room_id=1,
+                request=request,
+                actor_user_id=10,
+                db=mock_db
+            )
+            
+            assert response.success is True
+            assert response.nextAction.type == NextActionType.SELECT_PLAYER
+            
+            # Verificar que se detectó Beresford
+            call_args = mock_detective_service._determine_next_action.call_args
+            assert call_args.kwargs['set_type'] == SetType.BERESFORD
     
     @pytest.mark.asyncio
     async def test_room_not_found(self, mock_db):
@@ -397,28 +534,36 @@ class TestAnotherVictim:
     @pytest.mark.asyncio
     async def test_database_error_rollback(
         self, mock_db, mock_room, mock_game, mock_actor, 
-        mock_turn, mock_victim, mock_victim_set_cards
+        mock_turn, mock_victim, mock_victim_set_cards, mock_another_victim_card
     ):
         """Test que se hace rollback en caso de error"""
         self.setup_query_chain(mock_db, [
             mock_room, mock_game, mock_actor, mock_turn, 
-            mock_victim, mock_victim_set_cards, None, (5,)
+            mock_victim, mock_victim_set_cards, mock_another_victim_card, (5,), None
         ])
         
+        # El commit falla después de crear todo
         mock_db.commit.side_effect = Exception("Database error")
         
-        request = VictimRequest(originalOwnerId=20, setPosition=1)
+        mock_detective_service = Mock()
+        mock_detective_action = Mock()
+        mock_detective_action.id = 999
+        mock_detective_service._create_detective_action = Mock(return_value=mock_detective_action)
+        mock_detective_service._determine_next_action = Mock(side_effect=Exception("Database error"))
         
-        with pytest.raises(HTTPException) as exc_info:
-            await another_victim(
-                room_id=1,
-                request=request,
-                actor_user_id=10,
-                db=mock_db
-            )
-        
-        assert exc_info.value.status_code == 500
-        mock_db.rollback.assert_called_once()
+        with patch('app.routes.another_victim.DetectiveSetService', return_value=mock_detective_service):
+            request = VictimRequest(originalOwnerId=20, setPosition=1)
+            
+            with pytest.raises(HTTPException) as exc_info:
+                await another_victim(
+                    room_id=1,
+                    request=request,
+                    actor_user_id=10,
+                    db=mock_db
+                )
+            
+            assert exc_info.value.status_code == 500
+            mock_db.rollback.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_card_transfer_updates(
@@ -429,15 +574,29 @@ class TestAnotherVictim:
         self.setup_query_chain(mock_db, [
             mock_room, mock_game, mock_actor, mock_turn, 
             mock_victim, mock_victim_set_cards, 
-            mock_another_victim_card, (5,)
+            mock_another_victim_card, (5,), None
         ])
         
         mock_ws = AsyncMock()
+        mock_detective_service = Mock()
+        mock_detective_action = Mock()
+        mock_detective_action.id = 999
+        mock_detective_action.parent_action_id = None
+        mock_detective_service._create_detective_action = Mock(return_value=mock_detective_action)
+        
+        from app.schemas.detective_set_schema import NextAction, NextActionType, NextActionMetadata
+        mock_next_action = NextAction(
+            type=NextActionType.SELECT_PLAYER_AND_SECRET,
+            allowedPlayers=[20],
+            metadata=NextActionMetadata(hasWildcard=False)
+        )
+        mock_detective_service._determine_next_action = Mock(return_value=mock_next_action)
         
         with patch('app.routes.another_victim.get_websocket_service', return_value=mock_ws), \
              patch('app.routes.another_victim.build_complete_game_state', return_value={
                  "estados_privados": {}
-             }):
+             }), \
+             patch('app.routes.another_victim.DetectiveSetService', return_value=mock_detective_service):
             
             request = VictimRequest(originalOwnerId=20, setPosition=1)
             
@@ -451,6 +610,7 @@ class TestAnotherVictim:
             # Verificar que todas las cartas del set cambiaron de dueño
             for card in mock_victim_set_cards:
                 assert card.player_id == 10
+                assert card.position == 1  # Nueva posición
             
             # Verificar que la carta Another Victim fue descartada
             assert mock_another_victim_card.is_in == CardState.DISCARD
@@ -468,13 +628,28 @@ class TestAnotherVictim:
             mock_room, mock_game, mock_actor, mock_turn, 
             mock_victim, mock_victim_set_cards, 
             None,  # No tiene la carta Another Victim
-            None   # No hay max_discard_position (primera carta descartada)
+            None,  # No hay max_discard_position
+            None   # No hay max_actor_set_position
         ])
         
         mock_ws = AsyncMock()
+        mock_detective_service = Mock()
+        mock_detective_action = Mock()
+        mock_detective_action.id = 777
+        mock_detective_action.parent_action_id = None
+        mock_detective_service._create_detective_action = Mock(return_value=mock_detective_action)
+        
+        from app.schemas.detective_set_schema import NextAction, NextActionType, NextActionMetadata
+        mock_next_action = NextAction(
+            type=NextActionType.SELECT_PLAYER_AND_SECRET,
+            allowedPlayers=[20],
+            metadata=NextActionMetadata(hasWildcard=False)
+        )
+        mock_detective_service._determine_next_action = Mock(return_value=mock_next_action)
         
         with patch('app.routes.another_victim.get_websocket_service', return_value=mock_ws), \
-             patch('app.routes.another_victim.build_complete_game_state', return_value={}):
+             patch('app.routes.another_victim.build_complete_game_state', return_value={}), \
+             patch('app.routes.another_victim.DetectiveSetService', return_value=mock_detective_service):
             
             request = VictimRequest(originalOwnerId=20, setPosition=1)
             
@@ -487,6 +662,7 @@ class TestAnotherVictim:
             
             # Debe continuar exitosamente aunque no tenga la carta
             assert response.success is True
+            assert response.actionId == 777
             
             # Verificar que las cartas del set fueron transferidas
             for card in mock_victim_set_cards:
