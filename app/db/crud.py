@@ -597,3 +597,146 @@ def transfer_secret_card(
         db.flush()
     
     return card
+
+
+# ------------------------------
+# SOCIAL DISGRACE
+# ------------------------------
+
+def get_player_secrets(db: Session, game_id: int, player_id: int):
+    """
+    Obtiene todos los secretos de un jugador en una partida.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: ID del jugador
+    
+    Returns:
+        Lista de CardsXGame con is_in=SECRET_SET para ese jugador
+    """
+    return db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.player_id == player_id,
+        models.CardsXGame.is_in == models.CardState.SECRET_SET
+    ).all()
+
+
+def check_player_in_social_disgrace(db: Session, game_id: int, player_id: int) -> bool:
+    """
+    Verifica si un jugador está actualmente registrado en la tabla de desgracia social.
+    
+    NOTA: Esta función es diferente a is_player_in_social_disgrace():
+    - is_player_in_social_disgrace(): Calcula si DEBE estar en desgracia (lógica de negocio)
+    - check_player_in_social_disgrace(): Verifica si ESTÁ registrado en la tabla (query simple)
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: ID del jugador
+    
+    Returns:
+        True si el jugador está registrado en SocialDisgracePlayer, False en caso contrario
+    """
+    record = db.query(models.SocialDisgracePlayer).filter(
+        models.SocialDisgracePlayer.id_game == game_id,
+        models.SocialDisgracePlayer.player_id == player_id
+    ).first()
+    
+    return record is not None
+
+
+def get_social_disgrace_record(db: Session, game_id: int, player_id: int):
+    """
+    Obtiene el registro de desgracia social de un jugador.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: ID del jugador
+    
+    Returns:
+        SocialDisgracePlayer o None si no está en desgracia
+    """
+    return db.query(models.SocialDisgracePlayer).filter(
+        models.SocialDisgracePlayer.id_game == game_id,
+        models.SocialDisgracePlayer.player_id == player_id
+    ).first()
+
+
+def add_player_to_social_disgrace(db: Session, game_id: int, player_id: int):
+    """
+    Agrega un jugador a la tabla de desgracia social.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: ID del jugador
+    
+    Returns:
+        SocialDisgracePlayer creado
+    """
+    new_disgrace = models.SocialDisgracePlayer(
+        id_game=game_id,
+        player_id=player_id
+    )
+    db.add(new_disgrace)
+    db.commit()
+    db.refresh(new_disgrace)
+    return new_disgrace
+
+
+def remove_player_from_social_disgrace(db: Session, game_id: int, player_id: int):
+    """
+    Elimina un jugador de la tabla de desgracia social.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: ID del jugador
+    
+    Returns:
+        True si se eliminó, False si no existía
+    """
+    record = get_social_disgrace_record(db, game_id, player_id)
+    if record:
+        db.delete(record)
+        db.commit()
+        return True
+    return False
+
+
+def get_players_in_social_disgrace_with_info(db: Session, game_id: int):
+    """
+    Obtiene la lista de jugadores en desgracia social con su información completa.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+    
+    Returns:
+        Lista de tuplas (SocialDisgracePlayer, Player)
+    """
+    return db.query(
+        models.SocialDisgracePlayer, 
+        models.Player
+    ).join(
+        models.Player, 
+        models.SocialDisgracePlayer.player_id == models.Player.id
+    ).filter(
+        models.SocialDisgracePlayer.id_game == game_id
+    ).all()
+
+
+def get_room_by_game_id(db: Session, game_id: int):
+    """
+    Obtiene el room asociado a un juego.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+    
+    Returns:
+        Room o None si no existe
+    """
+    return db.query(models.Room).filter(models.Room.id_game == game_id).first()
