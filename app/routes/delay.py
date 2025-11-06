@@ -62,7 +62,7 @@ async def delay_murderer_escape(
     if game.player_turn_id != user_id:
         raise HTTPException(status_code=403, detail="not_your_turn")
 
-    # Validar que la carta esté en mano del jugador
+    # Validar carta
     event_card = db.query(models.CardsXGame).filter(
         models.CardsXGame.id == payload.card_id,
         models.CardsXGame.player_id == user_id,
@@ -72,12 +72,10 @@ async def delay_murderer_escape(
 
     if not event_card:
         raise HTTPException(status_code=404, detail="event_card_not_found")
-
     if event_card.card.type != models.CardType.EVENT:
         raise HTTPException(status_code=400, detail="not_an_event_card")
 
     try:
-        # Crear acción principal
         current_turn = crud.get_current_turn(db, room.id_game)
         parent_action = crud.create_action(db, {
             "id_game": room.id_game,
@@ -89,14 +87,14 @@ async def delay_murderer_escape(
             "selected_card_id": event_card.id
         })
 
-        # Obtener cartas del descarte (últimas N)
+        # Cartas del descarte (tope primero)
         discard_cards = (
             db.query(models.CardsXGame)
             .filter(
                 models.CardsXGame.id_game == room.id_game,
                 models.CardsXGame.is_in == models.CardState.DISCARD
             )
-            .order_by(models.CardsXGame.position.desc())  # tope del descarte primero
+            .order_by(models.CardsXGame.position.desc())
             .limit(payload.quantity)
             .all()
         )
@@ -113,33 +111,36 @@ async def delay_murderer_escape(
                 models.CardsXGame.id_game == room.id_game,
                 models.CardsXGame.is_in == models.CardState.DECK
             )
-            .order_by(models.CardsXGame.position.asc())  # más baja = tope real
+            .order_by(models.CardsXGame.position.asc())
             .first()
         )
         min_position = top_card.position if top_card else 1
 
         moved_cards_ids = []
 
-        # Mover las cartas del descarte al TOPE del mazo (posición menor)
-        # Invertimos orden para mantener el tope del descarte arriba del mazo
+        # 🔁 Queremos que la última del descarte quede en el tope → invertimos
         discard_cards = list(reversed(discard_cards))
-        for i, card in enumerate(discard_cards):
+
+        # Calcular posiciones nuevas, todas menores al tope actual
+        # Si el tope es posición 5, y movemos 3 cartas → nuevas posiciones serán [2,3,4]? No, queremos [2,3,4]? no, [min-3,min-2,min-1]
+        new_positions = list(range(min_position - len(discard_cards), min_position))
+
+        for card, new_pos in zip(discard_cards, new_positions):
             card.is_in = models.CardState.DECK
-            card.position = min_position - (i + 1)
+            card.position = new_pos
             card.hidden = True
             moved_cards_ids.append(card.id)
 
-        # Eliminar la carta de evento
+        # Eliminar carta de evento
         event_card.is_in = models.CardState.REMOVED
         event_card.position = 0
         event_card.hidden = True
 
         db.commit()
 
-        print(f"🟢 Cartas movidas al tope del mazo: {moved_cards_ids}", flush=True)
-        print(f"🟣 Carta de evento eliminada: {event_card.id}", flush=True)
+        print(f"🟢 Cartas movidas al TOPE del mazo: {moved_cards_ids}", flush=True)
 
-        # Mostrar orden actual del mazo
+        # Mostrar orden final con posiciones
         deck_cards = (
             db.query(models.CardsXGame)
             .filter(
@@ -149,9 +150,8 @@ async def delay_murderer_escape(
             .order_by(models.CardsXGame.position.asc())
             .all()
         )
-        print(f"📘 Orden actual del mazo (tope → fondo): {[c.id for c in deck_cards]}", flush=True)
+        print(f"📘 Orden actual del mazo (tope → fondo): {[(c.id, c.position) for c in deck_cards]}", flush=True)
 
-        # Crear acción secundaria de movimiento
         crud.create_action(db, {
             "id_game": room.id_game,
             "turn_id": parent_action.turn_id,
@@ -165,9 +165,7 @@ async def delay_murderer_escape(
 
         db.commit()
 
-        # Enviar notificaciones WS
         ws_service = get_websocket_service()
-
         await ws_service.notificar_event_action_started(
             room_id=room_id,
             player_id=user_id,
@@ -175,7 +173,6 @@ async def delay_murderer_escape(
             card_name="Delay The Murderer's Escape",
             step="played"
         )
-
         await ws_service.notificar_event_action_complete(
             room_id=room_id,
             player_id=user_id,
@@ -183,7 +180,6 @@ async def delay_murderer_escape(
         )
 
         game_state = build_complete_game_state(db, game.id)
-
         await ws_service.notificar_estado_publico(room_id=room_id, game_state=game_state)
         await ws_service.notificar_estados_privados(
             room_id=room_id,
@@ -201,3 +197,4 @@ async def delay_murderer_escape(
         import logging
         logging.exception("Error in delay_murderer_escape")
         raise HTTPException(status_code=500, detail="internal_error_delay_murderer_escape")
+
