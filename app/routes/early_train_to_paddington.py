@@ -59,9 +59,6 @@ async def early_train_to_paddington(
   actor_user_id: int = Header(..., alias="http-user-id"),
   db: Session = Depends(get_db)
 ):
-  print(f"==> Entró al endpoint Early train")
-  print(f"==> Body recibido: card_id={request.card_id}")
-  print(f"==> room_id={room_id}, actor_user_id={actor_user_id}")
 
   try:
     room = get_room_by_id(db, room_id)
@@ -92,7 +89,6 @@ async def early_train_to_paddington(
     if not current_turn:
       raise HTTPException(status_code=403, detail="No active turn found")
     
-    # 2. Buscar la carta específica por ID en la mano del jugador
     event_card = db.query(CardsXGame).join(Card).filter(
       CardsXGame.id == request.card_id,
       CardsXGame.player_id == actor.id,
@@ -212,16 +208,26 @@ async def early_train_to_paddington(
       ),
       deck=DeckInfo(remaining=deck_remaining)
     )
-    
-    game_state = build_complete_game_state(db, game.id)
+
     ws_service = get_websocket_service()
+
+    await ws_service.notificar_event_step_update(
+        room_id=room_id,
+        player_id=actor.id,
+        event_type="early_train",
+        step="finish",
+        message=f"Jugador {actor.name} Early train to paddington, se mueven cartas al discard"
+    )
+    logger.info("Se emitió el evento event_step_update del robo del set")    
+
+    game_state = build_complete_game_state(db, game.id)
     await ws_service.notificar_estado_partida(
         room_id=room_id,
         game_state=game_state,
         partida_finalizada=False
     )
 
-    logger.info(f"Early train to paddington completado. Movidas {len(first_six)} cartas del deck al discard.")
+    logger.info(f"Early train to paddington completado. Movidas cartas del deck al discard.")
     return response
     
   except HTTPException:
