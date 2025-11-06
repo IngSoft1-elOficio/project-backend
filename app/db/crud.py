@@ -626,10 +626,6 @@ def check_player_in_social_disgrace(db: Session, game_id: int, player_id: int) -
     """
     Verifica si un jugador está actualmente registrado en la tabla de desgracia social.
     
-    NOTA: Esta función es diferente a is_player_in_social_disgrace():
-    - is_player_in_social_disgrace(): Calcula si DEBE estar en desgracia (lógica de negocio)
-    - check_player_in_social_disgrace(): Verifica si ESTÁ registrado en la tabla (query simple)
-    
     Args:
         db: Sesión de base de datos
         game_id: ID del juego
@@ -667,6 +663,9 @@ def get_social_disgrace_record(db: Session, game_id: int, player_id: int):
 def add_player_to_social_disgrace(db: Session, game_id: int, player_id: int):
     """
     Agrega un jugador a la tabla de desgracia social.
+    Si el jugador ya está en desgracia, retorna el registro existente.
+    
+    NOTA: Esta función NO hace commit ni flush. El llamador debe hacer commit.
     
     Args:
         db: Sesión de base de datos
@@ -674,21 +673,27 @@ def add_player_to_social_disgrace(db: Session, game_id: int, player_id: int):
         player_id: ID del jugador
     
     Returns:
-        SocialDisgracePlayer creado
+        SocialDisgracePlayer creado o existente
     """
+    # Verificar si ya existe
+    existing = get_social_disgrace_record(db, game_id, player_id)
+    if existing:
+        return existing
+    
+    # Crear nuevo registro (sin flush ni commit)
     new_disgrace = models.SocialDisgracePlayer(
         id_game=game_id,
         player_id=player_id
     )
     db.add(new_disgrace)
-    db.commit()
-    db.refresh(new_disgrace)
     return new_disgrace
 
 
 def remove_player_from_social_disgrace(db: Session, game_id: int, player_id: int):
     """
     Elimina un jugador de la tabla de desgracia social.
+    
+    NOTA: Esta función NO hace commit ni flush. El llamador debe hacer commit.
     
     Args:
         db: Sesión de base de datos
@@ -701,7 +706,6 @@ def remove_player_from_social_disgrace(db: Session, game_id: int, player_id: int
     record = get_social_disgrace_record(db, game_id, player_id)
     if record:
         db.delete(record)
-        db.commit()
         return True
     return False
 
@@ -715,9 +719,9 @@ def get_players_in_social_disgrace_with_info(db: Session, game_id: int):
         game_id: ID del juego
     
     Returns:
-        Lista de tuplas (SocialDisgracePlayer, Player)
+        Lista de diccionarios con información de cada jugador en desgracia
     """
-    return db.query(
+    results = db.query(
         models.SocialDisgracePlayer, 
         models.Player
     ).join(
@@ -726,6 +730,17 @@ def get_players_in_social_disgrace_with_info(db: Session, game_id: int):
     ).filter(
         models.SocialDisgracePlayer.id_game == game_id
     ).all()
+    
+    # Convertir tuplas a diccionarios
+    return [
+        {
+            "player_id": player.id,
+            "player_name": player.name,
+            "avatar_src": player.avatar_src,
+            "entered_at": disgrace_record.entered_at
+        }
+        for disgrace_record, player in results
+    ]
 
 
 def get_room_by_game_id(db: Session, game_id: int):

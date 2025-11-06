@@ -12,8 +12,13 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Flag para deshabilitar eventos durante tests
-EVENTS_ENABLED = os.getenv("DISABLE_DB_EVENTS", "false").lower() != "true"
+
+def _events_enabled() -> bool:
+    """
+    Verifica si los eventos están habilitados.
+    Se evalúa cada vez (lazy) para permitir que conftest.py establezca la variable antes.
+    """
+    return os.getenv("DISABLE_DB_EVENTS", "false").lower() != "true"
 
 
 def _should_check_social_disgrace(target: CardsXGame) -> bool:
@@ -49,7 +54,7 @@ def _handle_social_disgrace_check(session: Session, target: CardsXGame):
     Esta función se ejecuta de forma síncrona en el contexto de SQLAlchemy.
     """
     # Saltar si los eventos están deshabilitados (ej: durante tests)
-    if not EVENTS_ENABLED:
+    if not _events_enabled():
         return
     
     # Import aquí para evitar circular imports
@@ -90,6 +95,10 @@ def after_update_cards_x_game(mapper, connection, target):
     
     Este es el caso más común: cuando se revela u oculta un secreto (cambio en 'hidden').
     """
+    # Saltar si los eventos están deshabilitados (ej: durante tests)
+    if not _events_enabled():
+        return
+    
     session = Session.object_session(target)
     if session is None:
         logger.warning("No session available for social disgrace check after update")
@@ -109,6 +118,10 @@ def after_insert_cards_x_game(mapper, connection, target):
     
     Aunque es menos común, podría darse el caso de que se inserte un secreto ya revelado.
     """
+    # Saltar si los eventos están deshabilitados (ej: durante tests)
+    if not _events_enabled():
+        return
+    
     session = Session.object_session(target)
     if session is None:
         logger.warning("No session available for social disgrace check after insert")
@@ -129,7 +142,7 @@ def after_delete_cards_x_game(mapper, connection, target):
     Si se elimina un secreto de un jugador, podría salir de desgracia social.
     """
     # Saltar si los eventos están deshabilitados (ej: durante tests)
-    if not EVENTS_ENABLED:
+    if not _events_enabled():
         return
     
     # Import aquí para evitar circular imports
