@@ -63,7 +63,7 @@ async def execute_detective_action(
     
     try:
         service = DetectiveActionService(db)
-        response = service.execute_detective_action(game_id, request)
+        response = await service.execute_detective_action(game_id, request, room_id)
         
         logger.info(f"Detective action executed successfully. Effects: {response.effects}")
         
