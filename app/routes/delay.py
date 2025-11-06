@@ -4,7 +4,7 @@ from app.db.database import SessionLocal
 from pydantic import BaseModel
 from app.db.models import Game, Room, CardsXGame, CardState, Player, RoomStatus, Card, ActionsPerTurn
 from app.sockets.socket_service import get_websocket_service
-from app.schemas.delay_schema import (delay_escape_start_request, delay_escape_start_response, delay_escape_order_request,delay_escape_order_response)
+from app.schemas.delay_schema import (delay_escape_request, delay_escape_response)
 from datetime import datetime
 from app.db import crud, models
 from app.services.game_status_service import build_complete_game_state
@@ -18,6 +18,26 @@ def get_db():
         yield db
     finally:
         db.close()
+
+from fastapi import APIRouter, Depends, HTTPException, Header
+from sqlalchemy.orm import Session
+from app.db.database import SessionLocal
+from app.db import crud, models
+from app.schemas.delay_schema import delay_escape_request, delay_escape_response
+from app.sockets.socket_service import get_websocket_service
+from app.services.game_status_service import build_complete_game_state
+
+router = APIRouter(prefix="/api/game", tags=["Events"])
+
+
+# Abro sesión en la BD
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 
 @router.post("/{room_id}/event/delay-murderer-escape",
              response_model=delay_escape_response,
@@ -84,32 +104,52 @@ async def delay_murderer_escape(
         if not discard_cards:
             raise HTTPException(status_code=400, detail="discard_pile_empty")
 
-        # Obtener la posición máxima actual del mazo
-        top_card = crud.get_top_card_by_state(db, room.id_game, models.CardState.DECK)
-        max_position = top_card.position if top_card else 0
+        print(f"🔶 Cartas en el descarte (antes de mover): {[c.id for c in discard_cards]}", flush=True)
+
+        # Obtener posición mínima del mazo (tope real)
+        top_card = (
+            db.query(models.CardsXGame)
+            .filter(
+                models.CardsXGame.id_game == room.id_game,
+                models.CardsXGame.is_in == models.CardState.DECK
+            )
+            .order_by(models.CardsXGame.position.asc())  # más baja = tope real
+            .first()
+        )
+        min_position = top_card.position if top_card else 1
 
         moved_cards_ids = []
 
-        # Mover cartas del descarte al mazo (la del tope del descarte va arriba)
+        # Mover las cartas del descarte al TOPE del mazo (posición menor)
+        # Invertimos orden para mantener el tope del descarte arriba del mazo
+        discard_cards = list(reversed(discard_cards))
         for i, card in enumerate(discard_cards):
-            new_position = max_position + (len(discard_cards) - i)
-            crud.move_card(
-                db=db,
-                card_id=card.id_card,
-                game_id=room.id_game,
-                new_state=models.CardState.DECK,
-                new_position=new_position
-            )
+            card.is_in = models.CardState.DECK
+            card.position = min_position - (i + 1)
+            card.hidden = True
             moved_cards_ids.append(card.id)
 
-        # Eliminar carta del juego (REMOVED)
-        crud.move_card(
-            db=db,
-            card_id=event_card.id_card,
-            game_id=room.id_game,
-            new_state=models.CardState.REMOVED,
-            new_position=0
+        # Eliminar la carta de evento
+        event_card.is_in = models.CardState.REMOVED
+        event_card.position = 0
+        event_card.hidden = True
+
+        db.commit()
+
+        print(f"🟢 Cartas movidas al tope del mazo: {moved_cards_ids}", flush=True)
+        print(f"🟣 Carta de evento eliminada: {event_card.id}", flush=True)
+
+        # Mostrar orden actual del mazo
+        deck_cards = (
+            db.query(models.CardsXGame)
+            .filter(
+                models.CardsXGame.id_game == room.id_game,
+                models.CardsXGame.is_in == models.CardState.DECK
+            )
+            .order_by(models.CardsXGame.position.asc())
+            .all()
         )
+        print(f"📘 Orden actual del mazo (tope → fondo): {[c.id for c in deck_cards]}", flush=True)
 
         # Crear acción secundaria de movimiento
         crud.create_action(db, {
