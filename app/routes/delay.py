@@ -19,28 +19,28 @@ def get_db():
     finally:
         db.close()
 
-# Delay de murderer escape: traigo las uotimas x cartas del mazo de descarte
-@router.post("/{room_id}/event/delay-murderer-escape", response_model = delay_escape_start_response, status_code = 200 )
-async def delay_murderer_step_1(
+@router.post("/{room_id}/event/delay-murderer-escape",
+             response_model=delay_escape_response,
+             status_code=200)
+async def delay_murderer_escape(
     room_id: int,
-    payload: delay_escape_start_request,
-    user_id: int = Header(..., alias = "HTTP_USER_ID"),
+    payload: delay_escape_request,
+    user_id: int = Header(..., alias="HTTP_USER_ID"),
     db: Session = Depends(get_db)
 ):
-
-    #busco sala
+    # Buscar sala
     room = crud.get_room_by_id(db, room_id)
     if not room:
-        raise HTTPException(status_code = 404, detail = "room_not_found")
+        raise HTTPException(status_code=404, detail="room_not_found")
 
-    #busco partida
+    # Buscar partida
     game = crud.get_game_by_id(db, room.id_game)
-    if not game :
-        raise HTTPException(status_code = 404 , detail = "game_not_found")
+    if not game:
+        raise HTTPException(status_code=404, detail="game_not_found")
 
-    #validar turno
+    # Validar turno
     if game.player_turn_id != user_id:
-        raise HTTPException(status_code = 403, detail = "not_your_turn")
+        raise HTTPException(status_code=403, detail="not_your_turn")
 
     # Validar que la carta esté en mano del jugador
     event_card = db.query(models.CardsXGame).filter(
@@ -49,152 +49,70 @@ async def delay_murderer_step_1(
         models.CardsXGame.id_game == room.id_game,
         models.CardsXGame.is_in == models.CardState.HAND
     ).first()
-    
+
     if not event_card:
-        raise HTTPException(
-            status_code=404, 
-            detail="Event card not found in your hand"
-        )
-    
-    # Validate card type is EVENT
+        raise HTTPException(status_code=404, detail="event_card_not_found")
+
     if event_card.card.type != models.CardType.EVENT:
-        raise HTTPException(
-            status_code=400,
-            detail="Card is not an event card"
-        )
-    
+        raise HTTPException(status_code=400, detail="not_an_event_card")
+
     try:
-        # Crear registro en actions_per_turn
+        # Crear acción principal
         current_turn = crud.get_current_turn(db, room.id_game)
-        action_data = {
-            'id_game': room.id_game,
-            'turn_id': current_turn.id,
-            'player_id': user_id,
-            'action_name': models.ActionName.DELAY_THE_MURDERERS_ESCAPE,
-            'action_type': models.ActionType.EVENT_CARD,
-            'result': models.ActionResult.SUCCESS,
-            'selected_card_id': event_card.id
-        }
-        
-        action = crud.create_action(db, action_data)
+        parent_action = crud.create_action(db, {
+            "id_game": room.id_game,
+            "turn_id": current_turn.id,
+            "player_id": user_id,
+            "action_name": models.ActionName.DELAY_THE_MURDERERS_ESCAPE,
+            "action_type": models.ActionType.EVENT_CARD,
+            "result": models.ActionResult.SUCCESS,
+            "selected_card_id": event_card.id
+        })
 
-        db.commit()
-
-        #chequeo cuantas cartas tiene el mazo de descarte
-        discard_cards = crud.count_cards_by_state(db, room.id_game, CardState.DISCARD)
-
-        # si la cantidad de cartas del mazo de descarte es menor q las q quiere el jugador
-        if discard_cards < payload.quantity:
-            last_cards = (
-                db.query(models.CardsXGame)
-                .join(models.Card)
-                .filter(
-                    models.CardsXGame.id_game == room.id_game,
-                    models.CardsXGame.is_in == models.CardState.DISCARD,
-                )
-                .order_by(models.CardsXGame.position.desc())
-                .limit(discard_cards)
-                .all()
+        # Obtener cartas del descarte (últimas N)
+        discard_cards = (
+            db.query(models.CardsXGame)
+            .filter(
+                models.CardsXGame.id_game == room.id_game,
+                models.CardsXGame.is_in == models.CardState.DISCARD
             )
-        else:
-            last_cards = (
-                db.query(models.CardsXGame)
-                .join(models.Card)
-                .filter(
-                    models.CardsXGame.id_game == room.id_game,
-                    models.CardsXGame.is_in == models.CardState.DISCARD,
-                )
-                .order_by(models.CardsXGame.position.desc())
-                .limit(payload.quantity)
-                .all()
-            )
-
-
-        
-        available_cards_id = [card.id for card in last_cards]
-
-        #notifico q se jugo la carta
-        game_state = build_complete_game_state(db, game.id)
-
-        ws_service = get_websocket_service()
-        await ws_service.notificar_event_action_started(
-            room_id = room_id,
-            player_id = user_id,
-            event_type = "delay_murderer_escape",
-            card_name = "Delay The Murderer's Escape",
-            step = "selecting_order"
+            .order_by(models.CardsXGame.position.desc())  # tope del descarte primero
+            .limit(payload.quantity)
+            .all()
         )
 
-        await ws_service.notificar_estados_privados(
-            room_id=room_id,
-            estados_privados=game_state.get("estados_privados", {})
+        if not discard_cards:
+            raise HTTPException(status_code=400, detail="discard_pile_empty")
+
+        # Obtener la posición máxima actual del mazo
+        top_card = crud.get_top_card_by_state(db, room.id_game, models.CardState.DECK)
+        max_position = top_card.position if top_card else 0
+
+        moved_cards_ids = []
+
+        # Mover cartas del descarte al mazo (la del tope del descarte va arriba)
+        for i, card in enumerate(discard_cards):
+            new_position = max_position + (len(discard_cards) - i)
+            crud.move_card(
+                db=db,
+                card_id=card.id_card,
+                game_id=room.id_game,
+                new_state=models.CardState.DECK,
+                new_position=new_position
+            )
+            moved_cards_ids.append(card.id)
+
+        # Eliminar carta del juego (REMOVED)
+        crud.move_card(
+            db=db,
+            card_id=event_card.id_card,
+            game_id=room.id_game,
+            new_state=models.CardState.REMOVED,
+            new_position=0
         )
 
-
-
-        return {
-            "action_id" : action.id,
-            "available_cards" : available_cards_id
-        }
-
-    except Exception as e:
-        db.rollback()
-        import logging
-        logging.exception("Error creating action in delay_murderer_step_1")
-        raise HTTPException(status_code=500, detail="internal_error_creating_action")
-
-# Delay de murderer escape:pongo las cartas del mazo de descarte en el regular en el orden q recibo
-@router.post("/{room_id}/event/delay-murderer-escape/order", response_model = delay_escape_order_response ,status_code = 200 )
-async def delay_murderer_order(
-    room_id: int,
-    payload: delay_escape_order_request,
-    user_id: int = Header(..., alias = "HTTP_USER_ID"),
-    db: Session = Depends(get_db)
-):
-
-    #busco sala
-    room = crud.get_room_by_id(db, room_id)
-    if not room:
-        raise HTTPException(status_code = 404, detail = "room_not_found")
-
-    #busco partida
-    game = crud.get_game_by_id(db, room.id_game)
-    if not game :
-        raise HTTPException(status_code = 404 , detail = "game_not_found")
-
-    #validar turno
-    if game.player_turn_id != user_id:
-        raise HTTPException(status_code = 403, detail = "not_your_turn")
-
-    try:
-        #hay q cambiar discard a deck en el orden correcto, primero obtengo la posicion maxima
-        top_card = crud.get_top_card_by_state(db, room.id_game, CardState.DECK)
-        max_position = top_card.position if top_card else 0  # me quedo solo con la posicion
-
-        # reordeno: la primera carta del array (ej. 2643) queda arriba del mazo
-        for i, card_id in enumerate(payload.ordered_cards_ids):
-            card = (
-                db.query(models.CardsXGame)
-                .filter(
-                    models.CardsXGame.id == card_id,
-                    models.CardsXGame.id_game == game.id,
-                    models.CardsXGame.is_in == CardState.DISCARD,
-                )
-                .first()
-            )
-            if not card:
-                raise HTTPException(status_code=404, detail="card_not_found")
-
-            # mover la carta al mazo
-            card.is_in = CardState.DECK
-            # invertir el orden para que la primera del array quede arriba
-            card.position = max_position + (len(payload.ordered_cards_ids) - i)
-
-        # Get parent action using crud helper
-        parent_action = crud.get_action_by_id(db, payload.action_id)
-
-        # Create completion action
-        completion_action_data = {
+        # Crear acción secundaria de movimiento
+        crud.create_action(db, {
             "id_game": room.id_game,
             "turn_id": parent_action.turn_id,
             "player_id": user_id,
@@ -203,53 +121,43 @@ async def delay_murderer_order(
             "result": models.ActionResult.SUCCESS,
             "parent_action_id": parent_action.id,
             "source_pile": models.SourcePile.DISCARD_PILE,
-        }
+        })
 
-        completion_action = crud.create_action(db, completion_action_data)
-
-        # Remover la carta del juego 
-        event_card = (
-            db.query(models.CardsXGame)
-            .filter(
-                models.CardsXGame.id == parent_action.selected_card_id,
-                models.CardsXGame.id_game == room.id_game,
-            )
-            .first()
-        )
-        if event_card:
-            event_card.is_in = models.CardState.REMOVED  # fuera del juego
-
-      
         db.commit()
 
-        # transmitir ws
+        # Enviar notificaciones WS
         ws_service = get_websocket_service()
-        await ws_service.notificar_event_action_complete(
+
+        await ws_service.notificar_event_action_started(
             room_id=room_id,
             player_id=user_id,
             event_type="delay_murderer_escape",
+            card_name="Delay The Murderer's Escape",
+            step="played"
+        )
+
+        await ws_service.notificar_event_action_complete(
+            room_id=room_id,
+            player_id=user_id,
+            event_type="delay_murderer_escape"
         )
 
         game_state = build_complete_game_state(db, game.id)
-        await ws_service.notificar_estado_publico(
-            room_id=room_id,
-            game_state=game_state
-        )
 
+        await ws_service.notificar_estado_publico(room_id=room_id, game_state=game_state)
         await ws_service.notificar_estados_privados(
-        room_id=room_id,
-        estados_privados=game_state.get("estados_privados", {})
+            room_id=room_id,
+            estados_privados=game_state.get("estados_privados", {})
         )
-
 
         return {
             "status": "ok",
             "action_id": parent_action.id,
-            "moved_cards": payload.ordered_cards_ids,
+            "moved_cards": moved_cards_ids
         }
 
     except Exception as e:
         db.rollback()
         import logging
-        logging.exception("Error creating action in delay_murderer_order")
-        raise HTTPException(status_code=500, detail="internal_error_creating_action")
+        logging.exception("Error in delay_murderer_escape")
+        raise HTTPException(status_code=500, detail="internal_error_delay_murderer_escape")
