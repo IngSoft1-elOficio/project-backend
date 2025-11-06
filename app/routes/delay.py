@@ -87,7 +87,7 @@ async def delay_murderer_escape(
             "selected_card_id": event_card.id
         })
 
-        # Cartas del descarte (tope primero)
+        # Cartas del descarte
         discard_cards = (
             db.query(models.CardsXGame)
             .filter(
@@ -102,9 +102,8 @@ async def delay_murderer_escape(
         if not discard_cards:
             raise HTTPException(status_code=400, detail="discard_pile_empty")
 
-        print(f"🔶 Cartas en el descarte (antes de mover): {[c.id for c in discard_cards]}", flush=True)
 
-        # Obtener posición mínima del mazo (tope real)
+        # Obtener posición mínima del mazo regular (tope)
         top_card = (
             db.query(models.CardsXGame)
             .filter(
@@ -118,7 +117,7 @@ async def delay_murderer_escape(
 
         moved_cards_ids = []
 
-        # 🔁 Queremos que la última del descarte quede en el tope → invertimos
+        #  Queremos que la última del descarte quede en el tope → invertimos
         discard_cards = list(reversed(discard_cards))
 
         # Calcular posiciones nuevas, todas menores al tope actual
@@ -138,8 +137,6 @@ async def delay_murderer_escape(
 
         db.commit()
 
-        print(f"🟢 Cartas movidas al TOPE del mazo: {moved_cards_ids}", flush=True)
-
         # Mostrar orden final con posiciones
         deck_cards = (
             db.query(models.CardsXGame)
@@ -150,8 +147,7 @@ async def delay_murderer_escape(
             .order_by(models.CardsXGame.position.asc())
             .all()
         )
-        print(f"📘 Orden actual del mazo (tope → fondo): {[(c.id, c.position) for c in deck_cards]}", flush=True)
-
+        
         crud.create_action(db, {
             "id_game": room.id_game,
             "turn_id": parent_action.turn_id,
