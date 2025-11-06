@@ -530,7 +530,7 @@ class TestDetectiveActionRoute:
         mock_response.completed = False
         mock_response.effects = Mock(revealed=[], hidden=[], transferred=[])
         mock_response.nextAction = Mock(metadata={})
-        mock_service.execute_detective_action.return_value = mock_response
+        mock_service.execute_detective_action = AsyncMock(return_value=mock_response)
         mock_service_class.return_value = mock_service
         
         # Mock WebSocket
@@ -594,7 +594,7 @@ class TestDetectiveActionRoute:
         mock_response.completed = False
         mock_response.effects = Mock(revealed=[], hidden=[], transferred=[])
         mock_response.nextAction = Mock(metadata={"some_key": "some_value"})  # Con metadata
-        mock_service.execute_detective_action.return_value = mock_response
+        mock_service.execute_detective_action = AsyncMock(return_value=mock_response)
         mock_service_class.return_value = mock_service
         
         # Mock WebSocket
@@ -653,7 +653,7 @@ class TestDetectiveActionRoute:
             hidden=[],
             transferred=[]
         )
-        mock_service.execute_detective_action.return_value = mock_response
+        mock_service.execute_detective_action = AsyncMock(return_value=mock_response)
         mock_service_class.return_value = mock_service
         
         # Mock WebSocket que falla en notificar
@@ -712,7 +712,7 @@ class TestDetectiveActionRoute:
             hidden=[],
             transferred=[Mock(secretId=1, fromPlayerId=data["player2"].id)]
         )
-        mock_service.execute_detective_action.return_value = mock_response
+        mock_service.execute_detective_action = AsyncMock(return_value=mock_response)
         mock_service_class.return_value = mock_service
         
         # Mock WebSocket
@@ -769,7 +769,7 @@ class TestDetectiveActionRoute:
             hidden=[Mock(secretId=1, playerId=data["player2"].id)],
             transferred=[]
         )
-        mock_service.execute_detective_action.return_value = mock_response
+        mock_service.execute_detective_action = AsyncMock(return_value=mock_response)
         mock_service_class.return_value = mock_service
         
         # Mock WebSocket
