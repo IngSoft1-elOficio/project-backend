@@ -6,7 +6,7 @@ from app.db.models import (
   Game, Room, CardsXGame, CardState, Player, ActionsPerTurn,
   ActionType, ActionResult, Turn, TurnStatus, Card, ActionName
 )
-from app.db.crud import get_room_by_id, get_game_by_id, get_max_position_by_state
+from app.db.crud import get_room_by_id, get_game_by_id
 from app.sockets.socket_service import get_websocket_service
 from app.services.game_status_service import build_complete_game_state
 from datetime import datetime
@@ -21,6 +21,9 @@ def get_db():
     yield db
   finally:
     db.close()
+  
+class EarlyTrainRequest(BaseModel):
+  card_id: int
 
 class CardInfo(BaseModel):
   cardId: int
@@ -49,15 +52,16 @@ class EarlyTrainResponse(BaseModel):
   deck: DeckInfo
 
 
-@router.post("/{room_id}/early_train_to_paddington", response_model=EarlyTrainResponse ,status_code=200)
-async def cards_off_the_table(
+@router.post("/{room_id}/early_train_to_paddington", response_model=EarlyTrainResponse, status_code=200)
+async def early_train_to_paddington(
   room_id: int,
-  actor_user_id: int = Header(..., alias="HTTP_USER_ID"),
+  request: EarlyTrainRequest,
+  actor_user_id: int = Header(..., alias="http-user-id"),
   db: Session = Depends(get_db)
 ):
-
   print(f"==> Entró al endpoint Early train")
-  print(f"room_id={room_id}, actor_user_id={actor_user_id}")
+  print(f"==> Body recibido: card_id={request.card_id}")
+  print(f"==> room_id={room_id}, actor_user_id={actor_user_id}")
 
   try:
     room = get_room_by_id(db, room_id)
@@ -72,7 +76,10 @@ async def cards_off_the_table(
     if game.player_turn_id != actor_user_id:
       raise HTTPException(status_code=403, detail="Not your turn")
   
-    actor = db.query(Player).filter(Player.id == actor_user_id, Player.id_room == room_id).first()
+    actor = db.query(Player).filter(
+      Player.id == actor_user_id, 
+      Player.id_room == room_id
+    ).first()
     if not actor:
       raise HTTPException(status_code=404, detail="Actor player not found")
 
@@ -85,17 +92,18 @@ async def cards_off_the_table(
     if not current_turn:
       raise HTTPException(status_code=403, detail="No active turn found")
     
-    # Busco la carta en la mano del jugador
+    # 2. Buscar la carta específica por ID en la mano del jugador
     event_card = db.query(CardsXGame).join(Card).filter(
+      CardsXGame.id == request.card_id,
       CardsXGame.player_id == actor.id,
       CardsXGame.id_game == game.id,
       CardsXGame.is_in == CardState.HAND,
       Card.name == "Early train to paddington"
     ).first()
     if not event_card:
-      raise HTTPException(status_code=404, detail="Card not found")
+      raise HTTPException(status_code=404, detail="Event card not found in hand")
     
-    # Busco las primeras 6 cartas del deck
+    # Agarro las 6 del deck
     first_six = db.query(CardsXGame).filter(
       CardsXGame.id_game == game.id,
       CardsXGame.is_in == CardState.DECK
@@ -104,18 +112,18 @@ async def cards_off_the_table(
     ).limit(6).all()
 
     if not first_six:
-      raise HTTPException(status_code=400, detail="Empty deck")
+      raise HTTPException(status_code=409, detail="Deck is empty - state changed concurrently")
 
-    # Elimino la carta del juego
-    event_card.is_in = CardState.REMOVED
-    event_card.player_id = None
-
-    # Calcular siguiente posición en discard
     max_discard_position = db.query(CardsXGame.position).filter(
         CardsXGame.id_game == game.id,
         CardsXGame.is_in == CardState.DISCARD
     ).order_by(CardsXGame.position.desc()).first()
     next_discard_position = (max_discard_position[0] + 1) if max_discard_position else 1
+
+    # Elimino la carta evento del juego
+    event_card.is_in = CardState.REMOVED
+    event_card.player_id = None
+    event_card.position = 0
 
     action_event = ActionsPerTurn(
       id_game=game.id,
@@ -123,12 +131,14 @@ async def cards_off_the_table(
       player_id=actor.id,
       action_type=ActionType.EVENT_CARD,
       action_name=ActionName.EARLY_TRAIN_TO_PADDINGTON,
-      result=ActionResult.now(),
+      result=ActionResult.SUCCESS,
+      action_time=datetime.now(),
       selected_card_id=event_card.id,
     )
     db.add(action_event)
     db.flush()
 
+    # muevo las cartas del deck al discard 
     if first_six:
       parent_action = ActionsPerTurn(
         id_game=game.id,
@@ -143,10 +153,9 @@ async def cards_off_the_table(
       db.flush()
 
       for i, card in enumerate(first_six):
-        prev_pos = card.position
         card.is_in = CardState.DISCARD
         card.player_id = None
-        card.position = next_discard_position + 1 + i
+        card.position = next_discard_position + i
         card.hidden = False
 
         db.add(ActionsPerTurn(
@@ -157,13 +166,19 @@ async def cards_off_the_table(
           result=ActionResult.SUCCESS,
           action_time=datetime.now(),
           selected_card_id=card.id,
-          position_card_id=card.position,
           parent_action_id=parent_action.id
         ))
 
+    remaining_deck_cards = db.query(CardsXGame).filter(
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.DECK
+    ).order_by(CardsXGame.position.desc()).all()
+
+    for idx, card in enumerate(remaining_deck_cards, start=1):
+        card.position = idx
+
     db.commit()
 
-    # Estado final
     top_discard = db.query(CardsXGame).filter(
       CardsXGame.id_game == game.id,
       CardsXGame.is_in == CardState.DISCARD
@@ -177,13 +192,13 @@ async def cards_off_the_table(
     deck_remaining = db.query(CardsXGame).filter(
       CardsXGame.id_game == game.id,
       CardsXGame.is_in == CardState.DECK
-    )
+    ).count()
 
     response = EarlyTrainResponse(
       success=True,
-      eventCardDsicarded=CardInfo(
+      eventCardDiscarded=CardInfo(
         cardId=event_card.id,
-        name=event_card.card_name if event_card.card else "Early train to paddington",
+        name=event_card.card.name if event_card.card else "Early train to paddington",
         type=event_card.card.type.value if event_card.card and event_card.card.type else "EVENT"
       ),
       sourcePlayerHand=PlayerHandInfo(player_id=actor.id),
@@ -197,17 +212,16 @@ async def cards_off_the_table(
       ),
       deck=DeckInfo(remaining=deck_remaining)
     )
-
-    # Notificar estado actualizado
+    
     game_state = build_complete_game_state(db, game.id)
     ws_service = get_websocket_service()
     await ws_service.notificar_estado_partida(
         room_id=room_id,
-        jugador_que_actuo=actor.id,
-        game_state=game_state
+        game_state=game_state,
+        partida_finalizada=False
     )
 
-    logger.info(f"Early train to paddington completado.")
+    logger.info(f"Early train to paddington completado. Movidas {len(first_six)} cartas del deck al discard.")
     return response
     
   except HTTPException:
@@ -215,4 +229,4 @@ async def cards_off_the_table(
   except Exception as e:
     logger.error(f"Error en Early train to paddington: {e}", exc_info=True)
     db.rollback()
-  raise HTTPException(status_code=500, detail=f"Error processing early train to paddington: {str(e)}")
+    raise HTTPException(status_code=500, detail=f"Error processing early train to paddington: {str(e)}")
