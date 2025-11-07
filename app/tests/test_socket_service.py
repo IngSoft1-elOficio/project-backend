@@ -140,3 +140,112 @@ async def test_draw_and_turn_methods(service, mock_ws_manager):
         _, event, payload = call.args
         assert "player_id" in payload
         assert "timestamp" in payload
+
+
+# ---------------
+# Social Disgrace
+# ---------------
+
+@pytest.mark.asyncio
+async def test_notificar_social_disgrace_update(service, mock_ws_manager):
+    """Test notificación de cambio en desgracia social"""
+    players_in_disgrace = [
+        {
+            "player_id": 5,
+            "player_name": "Ana",
+            "avatar_src": "avatar1.png",
+            "entered_at": "2025-11-06T10:30:00"
+        },
+        {
+            "player_id": 8,
+            "player_name": "Luis",
+            "avatar_src": "avatar2.png",
+            "entered_at": "2025-11-06T10:35:00"
+        }
+    ]
+    
+    change_info = {
+        "action": "entered",
+        "player_id": 5,
+        "player_name": "Ana",
+        "game_id": 1
+    }
+
+    await service.notificar_social_disgrace_update(
+        room_id=10,
+        game_id=1,
+        players_in_disgrace=players_in_disgrace,
+        change_info=change_info
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    args, kwargs = mock_ws_manager.emit_to_room.await_args
+    room_id, event, payload = args
+
+    assert room_id == 10
+    assert event == "social_disgrace_update"
+    assert payload["type"] == "social_disgrace_update"
+    assert payload["game_id"] == 1
+    assert len(payload["players_in_disgrace"]) == 2
+    assert payload["players_in_disgrace"][0]["player_id"] == 5
+    assert payload["players_in_disgrace"][1]["player_name"] == "Luis"
+    assert payload["change"]["action"] == "entered"
+    assert payload["change"]["player_name"] == "Ana"
+    assert payload["message"] == "Ana ha entrado en desgracia social"
+    assert "timestamp" in payload
+
+
+@pytest.mark.asyncio
+async def test_notificar_social_disgrace_update_sin_change_info(service, mock_ws_manager):
+    """Test notificación de desgracia social sin change_info (lista inicial)"""
+    players_in_disgrace = [
+        {
+            "player_id": 3,
+            "player_name": "Carlos",
+            "avatar_src": "avatar3.png",
+            "entered_at": "2025-11-06T09:00:00"
+        }
+    ]
+
+    await service.notificar_social_disgrace_update(
+        room_id=20,
+        game_id=2,
+        players_in_disgrace=players_in_disgrace,
+        change_info=None
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    _, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert event == "social_disgrace_update"
+    assert payload["game_id"] == 2
+    assert len(payload["players_in_disgrace"]) == 1
+    assert payload["change"] is None
+    assert payload["message"] is None
+
+
+@pytest.mark.asyncio
+async def test_notificar_social_disgrace_update_lista_vacia(service, mock_ws_manager):
+    """Test notificación cuando nadie está en desgracia social"""
+    change_info = {
+        "action": "exited",
+        "player_id": 7,
+        "player_name": "María",
+        "game_id": 3
+    }
+
+    await service.notificar_social_disgrace_update(
+        room_id=30,
+        game_id=3,
+        players_in_disgrace=[],
+        change_info=change_info
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    _, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert event == "social_disgrace_update"
+    assert payload["game_id"] == 3
+    assert payload["players_in_disgrace"] == []
+    assert payload["change"]["action"] == "exited"
+    assert payload["message"] == "María ha salido de desgracia social"

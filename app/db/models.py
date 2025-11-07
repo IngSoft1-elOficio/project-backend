@@ -276,3 +276,23 @@ class ActionsPerTurn(Base):
     card_received = relationship("CardsXGame", foreign_keys=[card_received_id])
     parent_action = relationship("ActionsPerTurn", remote_side=[id], foreign_keys=[parent_action_id])
     triggered_by = relationship("ActionsPerTurn", remote_side=[id], foreign_keys=[triggered_by_action_id])
+
+
+class SocialDisgracePlayer(Base):
+    """
+    Tabla que registra qué jugadores están en desgracia social.
+    Un jugador entra en desgracia social cuando todos sus secretos están revelados (hidden=False).
+    """
+    __tablename__ = "social_disgrace_player"
+    __table_args__ = (
+        UniqueConstraint("id_game", "player_id", name="uq_social_disgrace_game_player"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    id_game = Column(Integer, ForeignKey("game.id"), nullable=False)
+    player_id = Column(Integer, ForeignKey("player.id"), nullable=False)
+    entered_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    
+    # Relaciones
+    game = relationship("Game")
+    player = relationship("Player")
