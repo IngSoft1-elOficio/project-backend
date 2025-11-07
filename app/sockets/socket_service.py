@@ -434,6 +434,48 @@ class WebSocketService:
         await self.ws_manager.emit_to_room(room_id, "player_left", mensaje)
         logger.info(f"Emitted player_left to room {room_id}: player {player_id} left")
 
+    # ---------------------
+    # | SOCIAL DISGRACE   |
+    # ---------------------
+    
+    async def notificar_social_disgrace_update(
+        self,
+        room_id: int,
+        game_id: int,
+        players_in_disgrace: List[Dict[str, Any]],
+        change_info: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Notifica a todos los jugadores sobre cambios en desgracia social.
+        
+        Args:
+            room_id: ID del room
+            game_id: ID del juego
+            players_in_disgrace: Lista de jugadores actualmente en desgracia social
+            change_info: Información del cambio (quien entró/salió)
+        """
+        # Preparar el mensaje
+        message = None
+        if change_info:
+            action = change_info.get("action")
+            player_name = change_info.get("player_name")
+            if action == "entered":
+                message = f"{player_name} ha entrado en desgracia social"
+            elif action == "exited":
+                message = f"{player_name} ha salido de desgracia social"
+        
+        mensaje = {
+            "type": "social_disgrace_update",
+            "game_id": game_id,
+            "players_in_disgrace": players_in_disgrace,
+            "message": message,
+            "change": change_info,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "social_disgrace_update", mensaje)
+        logger.info(f"📡 Emitted social_disgrace_update to room {room_id}: {message}")
+
 _websocket_service = None
 
 def get_websocket_service() -> WebSocketService:

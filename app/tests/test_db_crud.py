@@ -1241,3 +1241,255 @@ def test_transfer_secret_card(db):
     # Carta inexistente
     nonexistent = crud.transfer_secret_card(db, 9999, player2.id, 1, True)
     assert nonexistent is None
+
+
+def test_get_player_secrets(db):
+    """Test obtener todos los secretos de un jugador"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Sala Test", "status": "INGAME", "id_game": game.id})
+    player = crud.create_player(db, {
+        "name": "María",
+        "avatar_src": "avatar.png",
+        "birthdate": date(2000, 1, 1),
+        "id_room": room.id,
+        "is_host": True
+    })
+    
+    # Crear cartas de secreto
+    secret1 = models.Card(name="Secret 1", description="...", type="SECRET", img_src="/s1.png", qty=1)
+    secret2 = models.Card(name="Secret 2", description="...", type="SECRET", img_src="/s2.png", qty=1)
+    db.add_all([secret1, secret2])
+    db.commit()
+    
+    # Crear entradas en CardsXGame: 1 revelado, 1 oculto
+    entry1 = models.CardsXGame(
+        id_game=game.id, id_card=secret1.id, is_in=models.CardState.SECRET_SET,
+        position=1, player_id=player.id, hidden=False
+    )
+    entry2 = models.CardsXGame(
+        id_game=game.id, id_card=secret2.id, is_in=models.CardState.SECRET_SET,
+        position=2, player_id=player.id, hidden=True
+    )
+    db.add_all([entry1, entry2])
+    db.commit()
+    
+    # Obtener secretos del jugador
+    secrets = crud.get_player_secrets(db, game.id, player.id)
+    
+    # Verificar que obtiene ambos secretos
+    assert len(secrets) == 2
+    assert entry1 in secrets
+    assert entry2 in secrets
+    
+    # Jugador sin secretos
+    player2 = crud.create_player(db, {
+        "name": "Pedro",
+        "avatar_src": "avatar2.png",
+        "birthdate": date(1999, 5, 5),
+        "id_room": room.id,
+        "is_host": False
+    })
+    secrets_empty = crud.get_player_secrets(db, game.id, player2.id)
+    assert len(secrets_empty) == 0
+
+
+def test_check_player_in_social_disgrace(db):
+    """Test verificar si un jugador está en desgracia social"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Sala Test", "status": "INGAME", "id_game": game.id})
+    player = crud.create_player(db, {
+        "name": "Carlos",
+        "avatar_src": "avatar.png",
+        "birthdate": date(1998, 7, 15),
+        "id_room": room.id,
+        "is_host": True
+    })
+    
+    # Inicialmente no está en desgracia
+    is_in_disgrace = crud.check_player_in_social_disgrace(db, game.id, player.id)
+    assert is_in_disgrace is False
+    
+    # Agregar a desgracia social
+    crud.add_player_to_social_disgrace(db, game.id, player.id)
+    db.commit()
+    
+    # Ahora sí está en desgracia
+    is_in_disgrace = crud.check_player_in_social_disgrace(db, game.id, player.id)
+    assert is_in_disgrace is True
+
+
+def test_get_social_disgrace_record(db):
+    """Test obtener el registro de desgracia social de un jugador"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Sala Test", "status": "INGAME", "id_game": game.id})
+    player = crud.create_player(db, {
+        "name": "Julia",
+        "avatar_src": "avatar.png",
+        "birthdate": date(2001, 3, 20),
+        "id_room": room.id,
+        "is_host": True
+    })
+    
+    # Sin registro
+    record = crud.get_social_disgrace_record(db, game.id, player.id)
+    assert record is None
+    
+    # Crear registro
+    disgrace_record = models.SocialDisgracePlayer(id_game=game.id, player_id=player.id)
+    db.add(disgrace_record)
+    db.commit()
+    db.refresh(disgrace_record)
+    
+    # Obtener registro
+    record = crud.get_social_disgrace_record(db, game.id, player.id)
+    assert record is not None
+    assert record.id_game == game.id
+    assert record.player_id == player.id
+    assert record.entered_at is not None
+
+
+def test_add_player_to_social_disgrace(db):
+    """Test agregar un jugador a desgracia social"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Sala Test", "status": "INGAME", "id_game": game.id})
+    player = crud.create_player(db, {
+        "name": "Roberto",
+        "avatar_src": "avatar.png",
+        "birthdate": date(1997, 11, 8),
+        "id_room": room.id,
+        "is_host": True
+    })
+    
+    # Agregar a desgracia
+    record = crud.add_player_to_social_disgrace(db, game.id, player.id)
+    db.commit()
+    
+    # Verificar que se creó el registro
+    assert record is not None
+    assert record.id_game == game.id
+    assert record.player_id == player.id
+    assert record.entered_at is not None
+    
+    # Intentar agregar de nuevo al mismo jugador (debe retornar el existente)
+    record2 = crud.add_player_to_social_disgrace(db, game.id, player.id)
+    db.commit()
+    assert record2.id == record.id  # Es el mismo registro
+
+
+def test_remove_player_from_social_disgrace(db):
+    """Test eliminar un jugador de desgracia social"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Sala Test", "status": "INGAME", "id_game": game.id})
+    player = crud.create_player(db, {
+        "name": "Laura",
+        "avatar_src": "avatar.png",
+        "birthdate": date(2000, 9, 12),
+        "id_room": room.id,
+        "is_host": True
+    })
+    
+    # Agregar a desgracia
+    crud.add_player_to_social_disgrace(db, game.id, player.id)
+    db.commit()
+    
+    # Verificar que está en desgracia
+    assert crud.check_player_in_social_disgrace(db, game.id, player.id) is True
+    
+    # Eliminar de desgracia
+    result = crud.remove_player_from_social_disgrace(db, game.id, player.id)
+    db.commit()
+    
+    # Verificar que se eliminó
+    assert result is True
+    assert crud.check_player_in_social_disgrace(db, game.id, player.id) is False
+    
+    # Intentar eliminar de nuevo (no existe)
+    result2 = crud.remove_player_from_social_disgrace(db, game.id, player.id)
+    assert result2 is False
+
+
+def test_get_players_in_social_disgrace_with_info(db):
+    """Test obtener lista completa de jugadores en desgracia social con su info"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Sala Test", "status": "INGAME", "id_game": game.id})
+    
+    # Crear 3 jugadores
+    player1 = crud.create_player(db, {
+        "name": "Ana",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 1, 1),
+        "id_room": room.id,
+        "is_host": True
+    })
+    player2 = crud.create_player(db, {
+        "name": "Luis",
+        "avatar_src": "avatar2.png",
+        "birthdate": date(1999, 2, 2),
+        "id_room": room.id,
+        "is_host": False
+    })
+    player3 = crud.create_player(db, {
+        "name": "Sara",
+        "avatar_src": "avatar3.png",
+        "birthdate": date(2001, 3, 3),
+        "id_room": room.id,
+        "is_host": False
+    })
+    
+    # Solo player1 y player3 en desgracia
+    crud.add_player_to_social_disgrace(db, game.id, player1.id)
+    crud.add_player_to_social_disgrace(db, game.id, player3.id)
+    db.commit()
+    
+    # Obtener lista
+    disgrace_list = crud.get_players_in_social_disgrace_with_info(db, game.id)
+    
+    # Verificar que hay 2 jugadores
+    assert len(disgrace_list) == 2
+    
+    # Verificar estructura de datos
+    player_ids = [p["player_id"] for p in disgrace_list]
+    assert player1.id in player_ids
+    assert player3.id in player_ids
+    assert player2.id not in player_ids
+    
+    # Verificar que tiene los campos necesarios
+    for player_info in disgrace_list:
+        assert "player_id" in player_info
+        assert "player_name" in player_info
+        assert "avatar_src" in player_info
+        assert "entered_at" in player_info
+    
+    # Verificar nombres
+    names = [p["player_name"] for p in disgrace_list]
+    assert "Ana" in names
+    assert "Sara" in names
+    
+    # Juego sin jugadores en desgracia
+    game2 = crud.create_game(db, {})
+    empty_list = crud.get_players_in_social_disgrace_with_info(db, game2.id)
+    assert len(empty_list) == 0
+
+
+def test_get_room_by_game_id(db):
+    """Test obtener la sala asociada a un juego"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {
+        "name": "Sala Principal",
+        "status": "INGAME",
+        "id_game": game.id
+    })
+    
+    # Obtener sala por game_id
+    found_room = crud.get_room_by_game_id(db, game.id)
+    
+    # Verificar que encontró la sala correcta
+    assert found_room is not None
+    assert found_room.id == room.id
+    assert found_room.name == "Sala Principal"
+    assert found_room.id_game == game.id
+    
+    # Juego sin sala asociada
+    game2 = crud.create_game(db, {})
+    no_room = crud.get_room_by_game_id(db, game2.id)
+    assert no_room is None

@@ -42,6 +42,10 @@ from app.sockets.socket_manager import init_ws_manager
 from app.db.database import SessionLocal
 init_ws_manager(sio, lambda: SessionLocal())
 
+# Registrar event listeners de base de datos (desgracia social, etc.)
+from app.db.events import register_events as register_db_events
+register_db_events()
+
 # Importar y registrar eventos de Socket
 from app.sockets.socket_events import register_events
 register_events(sio)
