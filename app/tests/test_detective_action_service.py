@@ -327,7 +327,8 @@ def test_validate_secret_poirot_cannot_reveal_revealed(db, setup_game_with_playe
 # TESTS DE EJECUCIÓN - POIROT/MARPLE
 # ------------------------------
 
-def test_execute_poirot_reveal_secret(db, setup_game_with_players, setup_detective_cards):
+@pytest.mark.asyncio
+async def test_execute_poirot_reveal_secret(db, setup_game_with_players, setup_detective_cards):
     """Test ejecutar acción de Poirot revelando un secreto"""
     data = setup_game_with_players
     cards = setup_detective_cards
@@ -379,7 +380,11 @@ def test_execute_poirot_reveal_secret(db, setup_game_with_players, setup_detecti
         secretId=secret.id
     )
     
-    response = service.execute_detective_action(data["game"].id, request)
+    response = await service.execute_detective_action(
+        data["game"].id, 
+        request,
+        data["room"].id
+    )
     
     # Verificar response
     assert response.success is True
@@ -419,8 +424,8 @@ def test_execute_poirot_reveal_secret(db, setup_game_with_players, setup_detecti
 # ------------------------------
 # TESTS DE EJECUCIÓN - PARKER PYNE
 # ------------------------------
-
-def test_execute_pyne_hide_secret(db, setup_game_with_players, setup_detective_cards):
+@pytest.mark.asyncio
+async def test_execute_pyne_hide_secret(db, setup_game_with_players, setup_detective_cards):
     """Test ejecutar acción de Parker Pyne ocultando un secreto"""
     data = setup_game_with_players
     cards = setup_detective_cards
@@ -472,7 +477,11 @@ def test_execute_pyne_hide_secret(db, setup_game_with_players, setup_detective_c
         secretId=secret.id
     )
     
-    response = service.execute_detective_action(data["game"].id, request)
+    response = await service.execute_detective_action(
+        data["game"].id,
+        request,
+        data["room"].id
+    )
     
     # Verificar response
     assert response.success is True
@@ -503,7 +512,8 @@ def test_execute_pyne_hide_secret(db, setup_game_with_players, setup_detective_c
 # TESTS DE EJECUCIÓN - SATTERTHWAITE
 # ------------------------------
 
-def test_execute_satterthwaite_without_wildcard(db, setup_game_with_players, setup_detective_cards):
+@pytest.mark.asyncio
+async def test_execute_satterthwaite_without_wildcard(db, setup_game_with_players, setup_detective_cards):
     """Test Satterthwaite sin wildcard: solo revela"""
     data = setup_game_with_players
     cards = setup_detective_cards
@@ -566,7 +576,11 @@ def test_execute_satterthwaite_without_wildcard(db, setup_game_with_players, set
         secretId=None
     )
     
-    response_step1 = service.execute_detective_action(data["game"].id, request_step1)
+    response_step1 = await service.execute_detective_action(
+        data["game"].id,
+        request_step1,
+        data["room"].id
+    )
     
     # Verificar paso 1: no completado
     assert response_step1.success is True
@@ -580,7 +594,11 @@ def test_execute_satterthwaite_without_wildcard(db, setup_game_with_players, set
         secretId=secret.id
     )
     
-    response = service.execute_detective_action(data["game"].id, request_step2)
+    response = await service.execute_detective_action(
+        data["game"].id,
+        request_step2,
+        data["room"].id
+    )
     
     # Verificar paso 2: solo revela, NO transfiere
     assert response.success is True
@@ -595,7 +613,8 @@ def test_execute_satterthwaite_without_wildcard(db, setup_game_with_players, set
     assert secret.hidden is False  # Revelado
 
 
-def test_execute_satterthwaite_with_wildcard(db, setup_game_with_players, setup_detective_cards):
+@pytest.mark.asyncio
+async def test_execute_satterthwaite_with_wildcard(db, setup_game_with_players, setup_detective_cards):
     """Test Satterthwaite con wildcard: revela Y transfiere"""
     data = setup_game_with_players
     cards = setup_detective_cards
@@ -666,7 +685,11 @@ def test_execute_satterthwaite_with_wildcard(db, setup_game_with_players, setup_
         secretId=None
     )
     
-    response_step1 = service.execute_detective_action(data["game"].id, request_step1)
+    response_step1 = await service.execute_detective_action(
+        data["game"].id,
+        request_step1,
+        data["room"].id
+    )
     
     # Verificar paso 1: no completado, hay nextAction
     assert response_step1.success is True
@@ -682,7 +705,11 @@ def test_execute_satterthwaite_with_wildcard(db, setup_game_with_players, setup_
         secretId=secret.id
     )
     
-    response = service.execute_detective_action(data["game"].id, request_step2)
+    response = await service.execute_detective_action(
+        data["game"].id,
+        request_step2,
+        data["room"].id
+    )
     
     # Verificar paso 2: revela Y transfiere
     assert response.success is True
