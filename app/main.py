@@ -79,6 +79,8 @@ from app.routes import leave_game
 app.include_router(leave_game.router)
 from app.routes import another_victim
 app.include_router(another_victim.router)
+from app.routes import early_train_to_paddington
+app.include_router(early_train_to_paddington.router)
 from app.routes import delay
 app.include_router(delay.router)
 from app.routes import cards_off_the_table
