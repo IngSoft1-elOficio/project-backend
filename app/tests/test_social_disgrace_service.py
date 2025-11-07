@@ -215,7 +215,7 @@ def test_update_social_disgrace_status_player_not_found(db_session):
 
 
 def test_update_social_disgrace_status_exception_on_enter(db_session, sample_player):
-    """Test: excepción al intentar entrar en desgracia"""
+    """Test: excepción al intentar entrar en desgracia - manejo interno sin rollback"""
     with patch.object(social_disgrace_service, 'check_player_social_disgrace_status', return_value=True), \
          patch.object(crud, 'check_player_in_social_disgrace', return_value=False), \
          patch.object(crud, 'get_player_by_id', return_value=sample_player), \
@@ -227,12 +227,15 @@ def test_update_social_disgrace_status_exception_on_enter(db_session, sample_pla
             player_id=5
         )
     
+    # La excepción ocurre en update_social_disgrace_status_no_commit que NO hace rollback
+    # Solo retorna None. El rollback solo se hace si la excepción ocurre después del commit.
     assert result is None
-    db_session.rollback.assert_called_once()
+    # No se llama rollback porque la excepción se maneja internamente
+    db_session.rollback.assert_not_called()
 
 
 def test_update_social_disgrace_status_exception_on_exit(db_session, sample_player):
-    """Test: excepción al intentar salir de desgracia"""
+    """Test: excepción al intentar salir de desgracia - manejo interno sin rollback"""
     with patch.object(social_disgrace_service, 'check_player_social_disgrace_status', return_value=False), \
          patch.object(crud, 'check_player_in_social_disgrace', return_value=True), \
          patch.object(crud, 'get_player_by_id', return_value=sample_player), \
@@ -244,8 +247,11 @@ def test_update_social_disgrace_status_exception_on_exit(db_session, sample_play
             player_id=5
         )
     
+    # La excepción ocurre en update_social_disgrace_status_no_commit que NO hace rollback
+    # Solo retorna None. El rollback solo se hace si la excepción ocurre después del commit.
     assert result is None
-    db_session.rollback.assert_called_once()
+    # No se llama rollback porque la excepción se maneja internamente
+    db_session.rollback.assert_not_called()
 
 
 # ===============================

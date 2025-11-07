@@ -50,13 +50,16 @@ def check_player_social_disgrace_status(
         return False
 
 
-def update_social_disgrace_status(
+def update_social_disgrace_status_no_commit(
     db: Session, 
     game_id: int, 
     player_id: int
 ) -> Optional[Dict]:
     """
-    Actualiza el estado de desgracia social de un jugador.
+    Actualiza el estado de desgracia social de un jugador SIN hacer commit.
+    
+    Esta función es usada por los event listeners que ejecutan dentro de una
+    transacción activa. El commit debe ser manejado por quien inició la transacción.
     
     - Si debe estar en desgracia y no está registrado: lo agrega
     - Si no debe estar en desgracia y está registrado: lo elimina
@@ -77,8 +80,7 @@ def update_social_disgrace_status(
     """
     try:
         should_be_in_disgrace = check_player_social_disgrace_status(db, game_id, player_id)
-
-        is_in_disgrace = crud.check_player_in_social_disgrace(db, game_id, player_id) #tabla
+        is_in_disgrace = crud.check_player_in_social_disgrace(db, game_id, player_id)
         
         player = crud.get_player_by_id(db, player_id)
         player_name = player.name if player else f"Player {player_id}"
@@ -86,7 +88,7 @@ def update_social_disgrace_status(
         # Caso 1: Debe estar en desgracia pero no está registrado -> AGREGAR
         if should_be_in_disgrace and not is_in_disgrace:
             crud.add_player_to_social_disgrace(db, game_id, player_id)
-            db.commit()  # Commit aquí en el servicio
+            db.flush()  # Flush en lugar de commit
             
             logger.info(f"{player_name} (ID: {player_id}) entered social disgrace in game {game_id}")
             
@@ -100,7 +102,7 @@ def update_social_disgrace_status(
         # Caso 2: No debe estar en desgracia pero está registrado -> ELIMINAR
         elif not should_be_in_disgrace and is_in_disgrace:
             crud.remove_player_from_social_disgrace(db, game_id, player_id)
-            db.commit()  # Commit aquí en el servicio
+            db.flush()  # Flush en lugar de commit
             
             logger.info(f"{player_name} (ID: {player_id}) exited social disgrace in game {game_id}")
             
@@ -114,6 +116,47 @@ def update_social_disgrace_status(
         # Sin cambios
         logger.debug(f"No changes in social disgrace status for player {player_id} in game {game_id}")
         return None
+        
+    except Exception as e:
+        logger.error(f"Error updating social disgrace status (no commit): {e}")
+        return None
+
+
+def update_social_disgrace_status(
+    db: Session, 
+    game_id: int, 
+    player_id: int
+) -> Optional[Dict]:
+    """
+    Actualiza el estado de desgracia social de un jugador CON commit.
+    
+    Esta función hace commit y debe usarse cuando se llama directamente desde un endpoint
+    o servicio que maneja su propia transacción.
+    
+    - Si debe estar en desgracia y no está registrado: lo agrega
+    - Si no debe estar en desgracia y está registrado: lo elimina
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: ID del jugador
+        
+    Returns:
+        Dict con información del cambio si hubo alguno, None si no hubo cambios
+        {
+            "action": "entered" | "exited",
+            "player_id": int,
+            "player_name": str,
+            "game_id": int
+        }
+    """
+    try:
+        change_info = update_social_disgrace_status_no_commit(db, game_id, player_id)
+        
+        if change_info:
+            db.commit()  # Commit solo si hubo cambios
+            
+        return change_info
         
     except Exception as e:
         logger.error(f"Error updating social disgrace status: {e}")

@@ -52,6 +52,9 @@ def _handle_social_disgrace_check(session: Session, target: CardsXGame):
     """
     Maneja la verificación de desgracia social después de un cambio en CardsXGame.
     Esta función se ejecuta de forma síncrona en el contexto de SQLAlchemy.
+    
+    IMPORTANTE: NO hace commit, solo flush. El commit debe ser manejado por quien
+    inició la transacción original (el endpoint).
     """
     # Saltar si los eventos están deshabilitados (ej: durante tests)
     if not _events_enabled():
@@ -60,7 +63,7 @@ def _handle_social_disgrace_check(session: Session, target: CardsXGame):
     # Import aquí para evitar circular imports
     # (events.py -> service -> models -> database -> events)
     from app.services.social_disgrace_service import (
-        update_social_disgrace_status,
+        update_social_disgrace_status_no_commit,
         notify_social_disgrace_change
     )
     
@@ -68,8 +71,9 @@ def _handle_social_disgrace_check(session: Session, target: CardsXGame):
         return
     
     try:
-        # Actualizar el estado de desgracia social (operación síncrona)
-        change_info = update_social_disgrace_status(
+        # Actualizar el estado de desgracia social SIN commit
+        # El commit lo hará la transacción padre
+        change_info = update_social_disgrace_status_no_commit(
             db=session,
             game_id=target.id_game,
             player_id=target.player_id
