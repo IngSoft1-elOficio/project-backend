@@ -592,17 +592,19 @@ class WebSocketService:
         action_id: int,
         nsf_action_id: int,
         player_id: int,
-        card_id: int
+        card_id: int,
+        player_name: str
     ):
         """
         Notifica que un jugador jugó una carta NSF.
         
         Args:
             room_id: ID del room
-            action_id: ID de la acción NSF principal
-            nsf_action_id: ID de esta jugada NSF específica
+            action_id: ID de la acción NSF principal (YYY)
+            nsf_action_id: ID de esta jugada NSF específica (ZZZ)
             player_id: ID del jugador que jugó NSF
             card_id: ID de la carta NSF jugada (cardsXgame.id)
+            player_name: Nombre del jugador para el mensaje
         """
         mensaje = {
             "type": "nsf_played",
@@ -610,20 +612,22 @@ class WebSocketService:
             "nsf_action_id": nsf_action_id,
             "player_id": player_id,
             "card_id": card_id,
+            "message": f"Player {player_name} jugó Not So Fast",
             "timestamp": datetime.now().isoformat()
         }
         
         await self.ws_manager.emit_to_room(room_id, "nsf_played", mensaje)
         logger.info(
             f"🛡️  Emitted nsf_played to room {room_id}: "
-            f"Player {player_id} played NSF"
+            f"Player {player_name} (ID: {player_id}) played NSF"
         )
     
     async def notificar_nsf_counter_complete(
         self,
         room_id: int,
         action_id: int,
-        final_result: str
+        final_result: str,
+        message: str
     ):
         """
         Notifica el fin de la ventana NSF con el resultado final.
@@ -632,18 +636,20 @@ class WebSocketService:
             room_id: ID del room
             action_id: ID de la acción original
             final_result: Resultado final ("cancelled" o "continue")
+            message: Mensaje descriptivo del resultado
         """
         mensaje = {
             "type": "nsf_counter_complete",
             "action_id": action_id,
             "final_result": final_result,
+            "message": message,
             "timestamp": datetime.now().isoformat()
         }
         
         await self.ws_manager.emit_to_room(room_id, "nsf_counter_complete", mensaje)
         logger.info(
             f"🏁 Emitted nsf_counter_complete to room {room_id}: "
-            f"Action {action_id} result={final_result}"
+            f"Action {action_id} result={final_result} - {message}"
         )
 
 _websocket_service = None

@@ -461,7 +461,7 @@ class NotSoFastService:
         action_type: str
     ) -> ActionsPerTurn:
         """
-        Crea la acción de intención (registro XXX).
+        Crea la acción de intención
         
         Esta acción representa la intención de realizar una jugada.
         """
@@ -474,7 +474,7 @@ class NotSoFastService:
             "player_id": player_id,
             "action_time": datetime.now(),
             "action_name": action_name,
-            "action_type": ActionType.INTENTION,
+            "action_type": ActionType.INIT,
             "result": ActionResult.PENDING,
             "parent_action_id": None,
             "triggered_by_action_id": None
@@ -567,3 +567,110 @@ class NotSoFastService:
             return "Add Detective to Set"
         
         return "Unknown Action"
+    
+    def play_nsf_card(
+        self,
+        room_id: int,
+        action_id: int,
+        player_id: int,
+        card_id: int
+    ) -> Tuple[int, int, str]:
+        """
+        Procesa el juego de una carta Not So Fast.
+        
+        Args:
+            room_id: ID de la sala
+            action_id: ID de la acción original siendo contrarrestada
+            player_id: ID del jugador que juega NSF
+            card_id: ID de la carta NSF en cardsXgame
+        
+        Returns:
+            Tupla (nsf_action_id, nsf_start_action_id, player_name)
+            - nsf_action_id: ID de la acción de INIT creada
+            - nsf_start_action_id: ID de la acción de NSF_START actualizada
+            - player_name: Nombre del jugador para el mensaje
+        
+        Raises:
+            HTTPException con códigos 400, 403, 404
+        """
+        # 1. Obtener game_id y validar room
+        game_id = self._get_game_id_from_room(room_id)
+        
+        # 2. Validar jugador
+        player = self._get_player(player_id, game_id)
+        
+        # 3. Validar que la carta NSF está en la mano del jugador
+        player_cards = crud.list_cards_by_player(self.db, player_id, game_id)
+        
+        # Buscar si tiene la carta NSF en mano
+        nsf_card = None
+        for card in player_cards:
+            if card.id == card_id and card.is_in == CardState.HAND:
+                nsf_card = card
+                break
+        
+        if not nsf_card:
+            raise HTTPException(
+                status_code=400,
+                detail="NSF card not found in player's hand"
+            )
+        
+        # 4. Validar que es una carta NSF (id=13)
+        card_info = crud.get_card_by_id(self.db, nsf_card.id_card)
+        if not card_info or card_info.id != self.NOT_SO_FAST_CARD_ID:
+            raise HTTPException(
+                status_code=400,
+                detail="Card is not a Not So Fast card"
+            )
+        
+        # 5. Obtener la acción original 
+        original_action = crud.get_action_by_id(self.db, action_id, game_id)
+        
+        if not original_action:
+            raise HTTPException(
+                status_code=404,
+                detail="Original action not found"
+            )
+        
+        # 6. Obtener la acción NSF_START 
+        nsf_start_action = crud.get_nsf_start_action(
+            self.db,
+            triggered_by_action_id=action_id,
+            game_id=game_id
+        )
+        
+        if not nsf_start_action:
+            raise HTTPException(
+                status_code=400,
+                detail="NSF window not active for this action"
+            )
+        
+        # 7. Crear la acción NSF_PLAY y actualizar la acción NSF_START
+        now = datetime.now()
+        action_time_end = now + timedelta(seconds=self.NSF_WINDOW_DURATION)
+        
+        # Crear acción NSF_PLAY
+        nsf_play_action = crud.create_nsf_play_action(
+            db=self.db,
+            game_id=game_id,
+            turn_id=original_action.turn_id,
+            player_id=player_id,
+            nsf_start_action_id=nsf_start_action.id,
+            original_action_id=action_id,
+            card_id=card_id,
+            action_time_end=action_time_end
+        )
+        
+        # Actualizar action_time_end de YYY
+        crud.update_action_time_end(self.db, nsf_start_action.id, action_time_end)
+        
+        # 8. Commit final
+        self.db.commit()
+        self.db.refresh(nsf_play_action)
+        self.db.refresh(nsf_start_action)
+        
+        return (
+            nsf_play_action.id,
+            nsf_start_action.id,
+            player.name
+        )

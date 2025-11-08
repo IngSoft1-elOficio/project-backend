@@ -56,7 +56,7 @@ class ActionType(str, enum.Enum):
     DISCARD = "DISCARD"
     DRAW = "DRAW"
     INSTANT = "INSTANT"
-    INTENTION = "INTENTION"
+    INIT = "INIT"
     REVEAL_SECRET = "REVEAL_SECRET"
     HIDE_SECRET = "HIDE_SECRET"
     VOTE = "VOTE"

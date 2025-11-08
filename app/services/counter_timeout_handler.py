@@ -59,49 +59,63 @@ async def handle_nsf_timeout(
         # 2. Calcular resultado según paridad
         if nsf_chain_len % 2 != 0:
             # Impar → la acción se CANCELA
-            final_result = ActionResult.CANCELLED
-            intention_result = ActionResult.CANCELLED
+            final_result = ActionResult.CANCELLED      # YYY
+            intention_result = ActionResult.CANCELLED  # XXX
             result_str = "cancelled"
             logger.info("❌ Acción CANCELADA (NSF impar)")
         else:
             # Par (incluyendo 0) → la acción CONTINÚA
-            final_result = ActionResult.SUCCESS
-            intention_result = ActionResult.PENDING  # Pendiente de ejecutar
+            final_result = ActionResult.SUCCESS     # YYY
+            intention_result = ActionResult.CONTINUE  # XXX
             result_str = "continue"
             logger.info("✅ Acción CONTINÚA (NSF par)")
         
         # 3. Actualizar registros en DB
-        # Actualizar YYY (acción NSF start) → SUCCESS
+        # Actualizar YYY (acción NSF start) → SUCCESS o CANCELLED
         crud.update_action_result(db, nsf_action_id, final_result)
         
-        # Actualizar XXX (acción de intención) → CANCELLED o PENDING
+        # Actualizar XXX (acción de intención) → CONTINUE o CANCELLED
         crud.update_action_result(db, intention_action_id, intention_result)
+        
+        # Actualizar todas las acciones ZZZ (INSTANT_PLAY) → Siempre SUCCESS
+        # (las NSF se jugaron correctamente, independientemente del resultado)
+        for nsf_play_action in nsf_chain:
+            crud.update_action_result(db, nsf_play_action.id, ActionResult.SUCCESS)
+        
+        logger.info(f"✅ Actualizadas {nsf_chain_len} acciones NSF_PLAY a SUCCESS")
         
         db.commit()
         
         logger.info(
             f"✅ Registros actualizados - "
             f"YYY({nsf_action_id})={final_result}, "
-            f"XXX({intention_action_id})={intention_result}"
+            f"XXX({intention_action_id})={intention_result}, "
+            f"{nsf_chain_len} ZZZ actions=SUCCESS"
         )
         
         # 4. Emitir evento NSF_COUNTER_COMPLETE
         ws_service = get_websocket_service()
         
+        # Construir mensaje descriptivo
+        if nsf_chain_len == 0:
+            message = "NSF counter finished - No NSF played, action continues"
+        elif nsf_chain_len == 1:
+            message = "NSF counter finished - 1 NSF played, action cancelled"
+        else:
+            action_status = "cancelled" if result_str == "cancelled" else "continues"
+            message = f"NSF counter finished - {nsf_chain_len} NSF played, action {action_status}"
+        
         await ws_service.notificar_nsf_counter_complete(
             room_id=room_id,
             action_id=intention_action_id,
-            final_result=result_str
+            final_result=result_str,
+            message=message
         )
         
         logger.info(
             f"📡 Evento NSF_COUNTER_COMPLETE emitido - "
-            f"result={result_str}"
+            f"result={result_str}, message={message}"
         )
-        
-        # 5. Si la acción continúa (PENDING), el jugador deberá ejecutarla
-        # TODO: Aquí podríamos emitir un evento adicional para que el frontend
-        # muestre que el jugador puede/debe ejecutar su acción original
         
     except Exception as e:
         logger.error(f"❌ Error en handle_nsf_timeout: {e}")

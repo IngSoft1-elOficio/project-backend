@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import date, datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
 
@@ -30,6 +31,15 @@ SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# BD separada para los tests de endpoint (con StaticPool para persistencia entre llamadas)
+ENDPOINT_DB_URL = "sqlite://"
+endpoint_engine = create_engine(
+    ENDPOINT_DB_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool
+)
+EndpointTestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=endpoint_engine)
+
 
 @pytest.fixture(scope="function")
 def db():
@@ -38,6 +48,29 @@ def db():
     yield db
     db.close()
     Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def test_client():
+    """Create a test client for the FastAPI app with persistent DB"""
+    from app.main import app
+    from app.routes.not_so_fast import get_db
+    
+    Base.metadata.create_all(bind=endpoint_engine)
+    
+    def override_get_db():
+        try:
+            db = EndpointTestingSessionLocal()
+            yield db
+        finally:
+            db.close()
+    
+    app.dependency_overrides[get_db] = override_get_db
+    
+    yield TestClient(app)
+    
+    Base.metadata.drop_all(bind=endpoint_engine)
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -558,7 +591,7 @@ def test_start_action_cancelable_with_nsf(game_setup):
     # Verificar que se crearon las acciones en DB
     intention = crud.get_action_by_id(db, response.actionId)
     assert intention is not None
-    assert intention.action_type == models.ActionType.INTENTION
+    assert intention.action_type == models.ActionType.INIT
     assert intention.result == models.ActionResult.PENDING
     
     nsf_action = crud.get_action_by_id(db, response.actionNSFId)
@@ -772,3 +805,450 @@ def test_start_action_response_schema():
     
     assert response2.actionNSFId is None
     assert response2.cancellable is False
+
+
+# ==============================================================================
+# TESTS PARA NUEVOS SCHEMAS (PlayNSFRequest, PlayNSFResponse)
+# ==============================================================================
+
+def test_play_nsf_request_schema():
+    """Test schema PlayNSFRequest para jugar una carta NSF"""
+    from app.schemas.not_so_fast_schema import PlayNSFRequest
+    
+    request = PlayNSFRequest(
+        actionId=10,
+        playerId=2,
+        cardId=150
+    )
+    
+    assert request.actionId == 10
+    assert request.playerId == 2
+    assert request.cardId == 150
+
+
+def test_play_nsf_response_schema():
+    """Test schema PlayNSFResponse con todos los campos"""
+    from app.schemas.not_so_fast_schema import PlayNSFResponse
+    
+    response = PlayNSFResponse(
+        success=True,
+        nsfActionId=25,
+        nsfStartActionId=24,
+        timeRemaining=5,
+        message="Player Bob jugó Not So Fast"
+    )
+    
+    assert response.success is True
+    assert response.nsfActionId == 25
+    assert response.nsfStartActionId == 24
+    assert response.timeRemaining == 5
+    assert response.message == "Player Bob jugó Not So Fast"
+
+
+def test_play_nsf_request_validation():
+    """Test validación de PlayNSFRequest con valores inválidos"""
+    from app.schemas.not_so_fast_schema import PlayNSFRequest
+    from pydantic import ValidationError
+    
+    # Campos faltantes deben fallar
+    with pytest.raises(ValidationError):
+        PlayNSFRequest(actionId=10)  # Falta playerId y cardId
+    
+    with pytest.raises(ValidationError):
+        PlayNSFRequest(playerId=2, cardId=10)  # Falta actionId
+
+
+# ==============================================================================
+# TESTS PARA SERVICIO play_nsf_card()
+# ==============================================================================
+
+def _create_nsf_card_with_id_13(db):
+    """Helper: Crea la carta NSF con ID=13 (NOT_SO_FAST_CARD_ID)"""
+    # Insertar cartas dummy para que NSF tenga ID=13
+    for i in range(1, 13):
+        dummy = models.Card(
+            id=i,
+            name=f"Dummy {i}",
+            description="Dummy",
+            type="SECRET",
+            img_src=f"/dummy{i}.png",
+            qty=1
+        )
+        db.add(dummy)
+    
+    nsf_card = models.Card(
+        id=13,
+        name="Not so fast",
+        description="NSF",
+        type="INSTANT",
+        img_src="/nsf.png",
+        qty=10
+    )
+    db.add(nsf_card)
+    db.flush()
+    return nsf_card
+
+
+def test_play_nsf_card_success(db):
+    """Test: play_nsf_card ejecuta correctamente el flujo completo"""
+    # Setup: Crear game, room, players, cards, actions
+    game = models.Game(player_turn_id=None)
+    db.add(game)
+    db.flush()
+    
+    room = models.Room(
+        name="Test Room",
+        players_min=2,
+        players_max=6,
+        status=models.RoomStatus.INGAME,
+        id_game=game.id
+    )
+    db.add(room)
+    db.flush()
+    
+    player = models.Player(
+        name="TestPlayer",
+        avatar_src="/avatar.jpg",
+        birthdate=date(1990, 1, 1),
+        id_room=room.id,
+        is_host=True,
+        order=1
+    )
+    db.add(player)
+    db.flush()
+    
+    # Crear carta NSF con ID=13
+    nsf_card = _create_nsf_card_with_id_13(db)
+    
+    # Carta NSF en mano del jugador
+    card_in_hand = models.CardsXGame(
+        id_game=game.id,
+        id_card=nsf_card.id,
+        is_in=CardState.HAND,
+        position=1,
+        player_id=player.id,
+        hidden=True
+    )
+    db.add(card_in_hand)
+    db.flush()
+    
+    # Acción XXX (original)
+    intention_action = models.ActionsPerTurn(
+        id_game=game.id,
+        player_id=player.id,
+        action_type=ActionType.INIT,
+        action_name="Point your suspicions",
+        result=ActionResult.PENDING
+    )
+    db.add(intention_action)
+    db.flush()
+    
+    # Acción YYY (NSF_START)
+    nsf_start_action = models.ActionsPerTurn(
+        id_game=game.id,
+        player_id=player.id,
+        action_type=ActionType.INSTANT,
+        action_name=ActionName.INSTANT_START,
+        result=ActionResult.PENDING,
+        triggered_by_action_id=intention_action.id
+    )
+    db.add(nsf_start_action)
+    db.commit()
+    
+    # Test
+    service = NotSoFastService(db)
+    nsf_action_id, nsf_start_id, player_name = service.play_nsf_card(
+        room_id=room.id,
+        action_id=intention_action.id,
+        player_id=player.id,
+        card_id=card_in_hand.id
+    )
+    
+    # Assert
+    assert nsf_action_id is not None
+    assert nsf_start_id == nsf_start_action.id
+    assert player_name == "TestPlayer"
+    
+    # Verificar que se creó la acción ZZZ
+    nsf_play = crud.get_action_by_id(db, nsf_action_id, game.id)
+    assert nsf_play is not None
+    assert nsf_play.action_type == ActionType.INSTANT
+    assert nsf_play.parent_action_id == nsf_start_action.id
+    assert nsf_play.triggered_by_action_id == intention_action.id
+    
+    # Verificar que YYY tiene action_time_end actualizado
+    db.refresh(nsf_start_action)
+    assert nsf_start_action.action_time_end is not None
+
+
+def test_play_nsf_card_not_in_hand(db):
+    """Test: play_nsf_card falla si la carta no está en la mano"""
+    # Setup
+    game = models.Game(player_turn_id=None)
+    db.add(game)
+    db.flush()
+    
+    room = models.Room(
+        name="Test Room",
+        players_min=2,
+        players_max=6,
+        status=models.RoomStatus.INGAME,
+        id_game=game.id
+    )
+    db.add(room)
+    db.flush()
+    
+    player = models.Player(
+        name="TestPlayer",
+        avatar_src="/avatar.jpg",
+        birthdate=date(1990, 1, 1),
+        id_room=room.id,
+        is_host=True,
+        order=1
+    )
+    db.add(player)
+    db.flush()
+    
+    nsf_card = _create_nsf_card_with_id_13(db)
+    
+    # Carta NSF en DISCARD (no en mano)
+    card_in_discard = models.CardsXGame(
+        id_game=game.id,
+        id_card=nsf_card.id,
+        is_in=CardState.DISCARD,
+        position=1,
+        player_id=None,
+        hidden=False
+    )
+    db.add(card_in_discard)
+    db.flush()
+    
+    intention_action = models.ActionsPerTurn(
+        id_game=game.id,
+        player_id=player.id,
+        action_type=ActionType.INIT,
+        action_name="Point your suspicions",
+        result=ActionResult.PENDING
+    )
+    db.add(intention_action)
+    db.commit()
+    
+    # Test
+    service = NotSoFastService(db)
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service.play_nsf_card(
+            room_id=room.id,
+            action_id=intention_action.id,
+            player_id=player.id,
+            card_id=card_in_discard.id
+        )
+    
+    assert exc_info.value.status_code == 400
+    assert "not found in player's hand" in exc_info.value.detail
+
+
+def test_play_nsf_card_no_nsf_window(db):
+    """Test: play_nsf_card falla si no hay ventana NSF activa"""
+    # Setup
+    game = models.Game(player_turn_id=None)
+    db.add(game)
+    db.flush()
+    
+    room = models.Room(
+        name="Test Room",
+        players_min=2,
+        players_max=6,
+        status=models.RoomStatus.INGAME,
+        id_game=game.id
+    )
+    db.add(room)
+    db.flush()
+    
+    player = models.Player(
+        name="TestPlayer",
+        avatar_src="/avatar.jpg",
+        birthdate=date(1990, 1, 1),
+        id_room=room.id,
+        is_host=True,
+        order=1
+    )
+    db.add(player)
+    db.flush()
+    
+    nsf_card = _create_nsf_card_with_id_13(db)
+    
+    card_in_hand = models.CardsXGame(
+        id_game=game.id,
+        id_card=nsf_card.id,
+        is_in=CardState.HAND,
+        position=1,
+        player_id=player.id,
+        hidden=True
+    )
+    db.add(card_in_hand)
+    db.flush()
+    
+    # Acción XXX sin YYY (sin ventana NSF)
+    intention_action = models.ActionsPerTurn(
+        id_game=game.id,
+        player_id=player.id,
+        action_type=ActionType.INIT,
+        action_name="Point your suspicions",
+        result=ActionResult.PENDING
+    )
+    db.add(intention_action)
+    db.commit()
+    
+    # Test
+    service = NotSoFastService(db)
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service.play_nsf_card(
+            room_id=room.id,
+            action_id=intention_action.id,
+            player_id=player.id,
+            card_id=card_in_hand.id
+        )
+    
+    assert exc_info.value.status_code == 400
+    assert "NSF window not active" in exc_info.value.detail
+
+
+def test_play_nsf_card_action_not_found(db):
+    """Test: play_nsf_card falla si la acción original no existe"""
+    # Setup
+    game = models.Game(player_turn_id=None)
+    db.add(game)
+    db.flush()
+    
+    room = models.Room(
+        name="Test Room",
+        players_min=2,
+        players_max=6,
+        status=models.RoomStatus.INGAME,
+        id_game=game.id
+    )
+    db.add(room)
+    db.flush()
+    
+    player = models.Player(
+        name="TestPlayer",
+        avatar_src="/avatar.jpg",
+        birthdate=date(1990, 1, 1),
+        id_room=room.id,
+        is_host=True,
+        order=1
+    )
+    db.add(player)
+    db.flush()
+    
+    nsf_card = _create_nsf_card_with_id_13(db)
+    
+    card_in_hand = models.CardsXGame(
+        id_game=game.id,
+        id_card=nsf_card.id,
+        is_in=CardState.HAND,
+        position=1,
+        player_id=player.id,
+        hidden=True
+    )
+    db.add(card_in_hand)
+    db.commit()
+    
+    # Test
+    service = NotSoFastService(db)
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service.play_nsf_card(
+            room_id=room.id,
+            action_id=9999,  # Acción que no existe
+            player_id=player.id,
+            card_id=card_in_hand.id
+        )
+    
+    assert exc_info.value.status_code == 404
+    assert "Original action not found" in exc_info.value.detail
+
+
+# ============================================================================
+# TESTS: ENDPOINT POST /instant/not-so-fast
+# ============================================================================
+# Nota: Los tests de endpoint prueban validaciones HTTP básicas.
+# La lógica de negocio completa ya está probada en los tests del servicio.
+
+def test_play_not_so_fast_endpoint_room_not_found(test_client):
+    """
+    Test: POST /instant/not-so-fast - Room not found
+    Precondiciones: Room ID no existe
+    Postcondiciones: 404 Not Found
+    """
+    response = test_client.post(
+        "/api/game/999/instant/not-so-fast",
+        json={
+            "actionId": 1,
+            "playerId": 1,
+            "cardId": 1
+        }
+    )
+    
+    assert response.status_code == 404
+    assert "Room not found" in response.json()["detail"]
+
+
+def test_play_not_so_fast_endpoint_invalid_request(test_client):
+    """
+    Test: POST /instant/not-so-fast - Invalid request body (missing fields)
+    Precondiciones: Request sin campos requeridos
+    Postcondiciones: 422 Unprocessable Entity
+    """
+    response = test_client.post(
+        "/api/game/1/instant/not-so-fast",
+        json={}  # Missing all required fields
+    )
+    
+    assert response.status_code == 422  # Validation error
+    assert "detail" in response.json()
+
+
+# ============================================================================
+# TESTS: ENDPOINT POST /start-action
+# ============================================================================
+# Nota: Similar a lo anterior, estos tests verifican validaciones HTTP.
+# La lógica de negocio está completamente probada en los tests del servicio.
+
+def test_start_action_endpoint_room_not_found(test_client):
+    """
+    Test: POST /start-action - Room not found
+    Precondiciones: Room ID no existe
+    Postcondiciones: 404 Not Found
+    """
+    response = test_client.post(
+        "/api/game/999/start-action",
+        json={
+            "playerId": 1,
+            "cardIds": [1, 2],
+            "additionalData": {
+                "actionType": "EVENT",
+                "setPosition": None
+            }
+        }
+    )
+    
+    assert response.status_code == 404
+    assert "Room not found" in response.json()["detail"]
+
+
+def test_start_action_endpoint_invalid_request(test_client):
+    """
+    Test: POST /start-action - Invalid request body (missing fields)
+    Precondiciones: Request sin campos requeridos
+    Postcondiciones: 422 Unprocessable Entity
+    """
+    response = test_client.post(
+        "/api/game/1/start-action",
+        json={}  # Missing all required fields
+    )
+    
+    assert response.status_code == 422  # Validation error
+    assert "detail" in response.json()

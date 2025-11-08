@@ -358,7 +358,8 @@ async def test_notificar_nsf_played(service, mock_ws_manager):
         action_id=105,
         nsf_action_id=106,
         player_id=8,
-        card_id=33
+        card_id=33,
+        player_name="TestPlayer"
     )
 
     mock_ws_manager.emit_to_room.assert_awaited_once()
@@ -371,6 +372,7 @@ async def test_notificar_nsf_played(service, mock_ws_manager):
     assert payload["nsf_action_id"] == 106
     assert payload["player_id"] == 8
     assert payload["card_id"] == 33
+    assert payload["message"] == "Player TestPlayer jugó Not So Fast"
     assert "timestamp" in payload
 
 
@@ -380,7 +382,8 @@ async def test_notificar_nsf_counter_complete_cancelled(service, mock_ws_manager
     await service.notificar_nsf_counter_complete(
         room_id=40,
         action_id=107,
-        final_result="cancelled"
+        final_result="cancelled",
+        message="NSF counter finished - 1 NSF played, action cancelled"
     )
 
     mock_ws_manager.emit_to_room.assert_awaited_once()
@@ -391,6 +394,7 @@ async def test_notificar_nsf_counter_complete_cancelled(service, mock_ws_manager
     assert payload["type"] == "nsf_counter_complete"
     assert payload["action_id"] == 107
     assert payload["final_result"] == "cancelled"
+    assert payload["message"] == "NSF counter finished - 1 NSF played, action cancelled"
     assert "timestamp" in payload
 
 
@@ -400,10 +404,12 @@ async def test_notificar_nsf_counter_complete_continue(service, mock_ws_manager)
     await service.notificar_nsf_counter_complete(
         room_id=45,
         action_id=108,
-        final_result="continue"
+        final_result="continue",
+        message="NSF counter finished - 2 NSF played, action continues"
     )
 
     _, event, payload = mock_ws_manager.emit_to_room.await_args.args
 
     assert payload["action_id"] == 108
     assert payload["final_result"] == "continue"
+    assert payload["message"] == "NSF counter finished - 2 NSF played, action continues"

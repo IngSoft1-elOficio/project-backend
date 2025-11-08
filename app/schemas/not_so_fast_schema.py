@@ -77,6 +77,29 @@ class StartActionRequest(BaseModel):
 # RESPONSE SCHEMAS
 # ========================
 
+class PlayNSFRequest(BaseModel):
+    """
+    Request para jugar una carta Not So Fast.
+    
+    El frontend envía:
+    - actionId: ID de la acción original que está siendo contrarrestada
+    - playerId: ID del jugador que juega la NSF
+    - cardId: ID de la carta NSF en cardsXgame.id
+    """
+    actionId: int = Field(..., description="ID de la acción original siendo contrarrestada")
+    playerId: int = Field(..., description="ID del jugador que juega NSF")
+    cardId: int = Field(..., description="ID de la carta NSF (cardsXgame.id)")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "actionId": 123,
+                "playerId": 2,
+                "cardId": 45
+            }
+        }
+
+
 class StartActionResponse(BaseModel):
     """
     Response del endpoint /start-action.
@@ -101,6 +124,30 @@ class StartActionResponse(BaseModel):
                 "actionNSFId": 124,
                 "cancellable": True,
                 "timeRemaining": 5
+            }
+        }
+
+
+class PlayNSFResponse(BaseModel):
+    """
+    Response del endpoint /instant/not-so-fast.
+    
+    Confirma que la NSF fue jugada y el timer reiniciado.
+    """
+    success: bool = Field(..., description="Indica si la NSF fue jugada exitosamente")
+    nsfActionId: int = Field(..., description="ID de la acción NSF jugada")
+    nsfStartActionId: int = Field(..., description="ID de la acción NSF_START")
+    timeRemaining: int = Field(..., description="Tiempo restante en segundos (siempre 5)")
+    message: str = Field(..., description="Mensaje descriptivo")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "nsfActionId": 126,
+                "nsfStartActionId": 124,
+                "timeRemaining": 5,
+                "message": "Player John jugó Not So Fast"
             }
         }
 

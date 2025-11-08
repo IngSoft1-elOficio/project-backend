@@ -284,7 +284,7 @@ async def test_handle_nsf_timeout_no_nsf_played(game_setup):
         "turn_id": turn.id,
         "player_id": player.id,
         "action_name": "Point your suspicions",
-        "action_type": models.ActionType.INTENTION,
+        "action_type": models.ActionType.INIT,
         "result": models.ActionResult.PENDING
     })
     db.commit()
@@ -321,13 +321,14 @@ async def test_handle_nsf_timeout_no_nsf_played(game_setup):
     db.refresh(nsf_start)
     
     assert nsf_start.result == models.ActionResult.SUCCESS
-    assert intention.result == models.ActionResult.PENDING  # Continúa
+    assert intention.result == models.ActionResult.CONTINUE  # Continúa (par)
     
     # Verificar que se emitió el evento con result="continue"
     mock_ws_instance.notificar_nsf_counter_complete.assert_awaited_once_with(
         room_id=room.id,
         action_id=intention.id,
-        final_result="continue"
+        final_result="continue",
+        message="NSF counter finished - No NSF played, action continues"
     )
 
 
@@ -346,7 +347,7 @@ async def test_handle_nsf_timeout_one_nsf_played(game_setup):
         "turn_id": turn.id,
         "player_id": player.id,
         "action_name": "Point your suspicions",
-        "action_type": models.ActionType.INTENTION,
+        "action_type": models.ActionType.INIT,
         "result": models.ActionResult.PENDING
     })
     db.commit()
@@ -399,7 +400,8 @@ async def test_handle_nsf_timeout_one_nsf_played(game_setup):
     mock_ws_instance.notificar_nsf_counter_complete.assert_awaited_once_with(
         room_id=room.id,
         action_id=intention.id,
-        final_result="cancelled"
+        final_result="cancelled",
+        message="NSF counter finished - 1 NSF played, action cancelled"
     )
 
 
@@ -418,7 +420,7 @@ async def test_handle_nsf_timeout_two_nsf_played(game_setup):
         "turn_id": turn.id,
         "player_id": player.id,
         "action_name": "Create Set",
-        "action_type": models.ActionType.INTENTION,
+        "action_type": models.ActionType.INIT,
         "result": models.ActionResult.PENDING
     })
     db.commit()
@@ -466,12 +468,13 @@ async def test_handle_nsf_timeout_two_nsf_played(game_setup):
     
     # Par = continúa
     assert nsf_start.result == models.ActionResult.SUCCESS
-    assert intention.result == models.ActionResult.PENDING
+    assert intention.result == models.ActionResult.CONTINUE  # Continúa (par)
     
     mock_ws_instance.notificar_nsf_counter_complete.assert_awaited_once_with(
         room_id=room.id,
         action_id=intention.id,
-        final_result="continue"
+        final_result="continue",
+        message="NSF counter finished - 2 NSF played, action continues"
     )
 
 
@@ -490,7 +493,7 @@ async def test_handle_nsf_timeout_three_nsf_played(game_setup):
         "turn_id": turn.id,
         "player_id": player.id,
         "action_name": "Add to Set",
-        "action_type": models.ActionType.INTENTION,
+        "action_type": models.ActionType.INIT,
         "result": models.ActionResult.PENDING
     })
     db.commit()
@@ -543,7 +546,8 @@ async def test_handle_nsf_timeout_three_nsf_played(game_setup):
     mock_ws_instance.notificar_nsf_counter_complete.assert_awaited_once_with(
         room_id=room.id,
         action_id=intention.id,
-        final_result="cancelled"
+        final_result="cancelled",
+        message="NSF counter finished - 3 NSF played, action cancelled"
     )
 
 
@@ -562,7 +566,7 @@ async def test_handle_nsf_timeout_counts_only_nsf_chain(game_setup):
         "turn_id": turn.id,
         "player_id": player.id,
         "action_name": "Action 1",
-        "action_type": models.ActionType.INTENTION,
+        "action_type": models.ActionType.INIT,
         "result": models.ActionResult.PENDING
     })
     db.commit()
@@ -599,7 +603,7 @@ async def test_handle_nsf_timeout_counts_only_nsf_chain(game_setup):
         "turn_id": turn.id,
         "player_id": player.id,
         "action_name": "Action 2",
-        "action_type": models.ActionType.INTENTION,
+        "action_type": models.ActionType.INIT,
         "result": models.ActionResult.PENDING
     })
     db.commit()
@@ -636,12 +640,13 @@ async def test_handle_nsf_timeout_counts_only_nsf_chain(game_setup):
     
     # Segunda cadena tiene 0 NSF (no debe contar la NSF de la primera cadena)
     assert nsf_start2.result == models.ActionResult.SUCCESS
-    assert intention2.result == models.ActionResult.PENDING  # Continue
+    assert intention2.result == models.ActionResult.CONTINUE  # Continue (par)
     
     mock_ws_instance.notificar_nsf_counter_complete.assert_awaited_once_with(
         room_id=room.id,
         action_id=intention2.id,
-        final_result="continue"
+        final_result="continue",
+        message="NSF counter finished - No NSF played, action continues"
     )
 
 
@@ -664,7 +669,7 @@ async def test_full_nsf_flow_with_timer(game_setup):
         "turn_id": turn.id,
         "player_id": player.id,
         "action_name": "Test Action",
-        "action_type": models.ActionType.INTENTION,
+        "action_type": models.ActionType.INIT,
         "result": models.ActionResult.PENDING
     })
     db.commit()
@@ -714,8 +719,7 @@ async def test_full_nsf_flow_with_timer(game_setup):
         # Verificar que el handler se ejecutó
         db.refresh(intention)
         db.refresh(nsf_start)
-        
+
         assert nsf_start.result == models.ActionResult.SUCCESS
-        assert intention.result == models.ActionResult.PENDING
-        
+        assert intention.result == models.ActionResult.CONTINUE  # Continúa (par)
         mock_ws_instance.notificar_nsf_counter_complete.assert_awaited_once()

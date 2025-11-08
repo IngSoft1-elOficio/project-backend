@@ -482,20 +482,24 @@ def get_players_not_in_disgrace(db: Session, game_id: int, exclude_player_id: in
 # DETECTIVE ACTION
 # ------------------------------
 
-def get_action_by_id(db: Session, action_id: int):
+def get_action_by_id(db: Session, action_id: int, game_id: int = None):
     """
-    Obtiene una acción por su ID.
+    Obtiene una acción por su ID, opcionalmente filtrada por game_id.
     
     Args:
         db: Sesión de base de datos
         action_id: ID de la acción en ActionsPerTurn
+        game_id: ID del juego (opcional, para validación adicional)
     
     Returns:
         ActionsPerTurn o None si no existe
     """
-    return db.query(models.ActionsPerTurn).filter(
+    query = db.query(models.ActionsPerTurn).filter(
         models.ActionsPerTurn.id == action_id
-    ).first()
+    )
+    if game_id is not None:
+        query = query.filter(models.ActionsPerTurn.id_game == game_id)
+    return query.first()
 
 
 def update_action_result(db: Session, action_id: int, result: models.ActionResult):
@@ -787,3 +791,149 @@ def get_actions_by_filters(
         query = query.filter(models.ActionsPerTurn.action_name == action_name)
     
     return query.all()
+
+
+# ------------------------------
+# NOT SO FAST - PLAY NSF CARD
+# ------------------------------
+
+def get_nsf_start_action(
+    db: Session,
+    triggered_by_action_id: int,
+    game_id: int
+):
+    """
+    Obtiene la acción INSTANT_START asociada a una acción original.
+    
+    Args:
+        db: Sesión de base de datos
+        triggered_by_action_id: ID de la acción original 
+        game_id: ID del juego
+    
+    Returns:
+        ActionsPerTurn o None si no existe
+    """
+    return db.query(models.ActionsPerTurn).filter(
+        models.ActionsPerTurn.triggered_by_action_id == triggered_by_action_id,
+        models.ActionsPerTurn.action_name == models.ActionName.INSTANT_START,
+        models.ActionsPerTurn.id_game == game_id
+    ).order_by(models.ActionsPerTurn.action_time.desc()).first()
+
+
+def move_card_to_discard(db: Session, card_game_id: int, game_id: int):
+    """
+    Mueve una carta al descarte, ajustando posiciones de las demás cartas.
+    
+    Args:
+        db: Sesión de base de datos
+        card_game_id: ID de CardsXGame a mover
+        game_id: ID del juego
+    
+    Returns:
+        CardsXGame actualizada
+    """
+    # Incrementar posición de todas las cartas en el descarte
+    db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.is_in == models.CardState.DISCARD
+    ).update(
+        {models.CardsXGame.position: models.CardsXGame.position + 1},
+        synchronize_session=False
+    )
+    
+    # Mover la carta al descarte en posición 1 (tope)
+    card_entry = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id == card_game_id
+    ).first()
+    
+    if card_entry:
+        card_entry.is_in = models.CardState.DISCARD
+        card_entry.position = 1
+        card_entry.player_id = None
+        card_entry.hidden = False  # El tope del descarte está visible
+        db.commit()
+        db.refresh(card_entry)
+    
+    return card_entry
+
+
+def get_player_name(db: Session, player_id: int):
+    """
+    Obtiene el nombre de un jugador.
+    
+    Args:
+        db: Sesión de base de datos
+        player_id: ID del jugador
+    
+    Returns:
+        Nombre del jugador o None si no existe
+    """
+    player = db.query(models.Player).filter(models.Player.id == player_id).first()
+    return player.name if player else None
+
+
+def create_nsf_play_action(
+    db: Session,
+    game_id: int,
+    turn_id: int,
+    player_id: int,
+    nsf_start_action_id: int,
+    original_action_id: int,
+    card_id: int,
+    action_time_end
+):
+    """
+    Crea una acción INSTANT_PLAY para NSF.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        turn_id: ID del turno
+        player_id: ID del jugador que juega NSF
+        nsf_start_action_id: ID de la acción NSF (parent)
+        original_action_id: ID de la acción original (trigger)
+        card_id: ID de la carta NSF jugada
+        action_time_end: Datetime de finalización
+    
+    Returns:
+        ActionsPerTurn creada
+    """
+    from datetime import datetime
+    
+    nsf_play_action = models.ActionsPerTurn(
+        id_game=game_id,
+        turn_id=turn_id,
+        player_id=player_id,
+        action_time=datetime.now(),
+        action_time_end=action_time_end,
+        action_name=models.ActionName.INSTANT_PLAY,
+        action_type=models.ActionType.INSTANT,
+        result=models.ActionResult.PENDING,
+        parent_action_id=nsf_start_action_id,
+        triggered_by_action_id=original_action_id,
+        selected_card_id=card_id
+    )
+    
+    db.add(nsf_play_action)
+    db.flush()
+    db.refresh(nsf_play_action)
+    
+    return nsf_play_action
+
+
+def update_action_time_end(db: Session, action_id: int, action_time_end):
+    """
+    Actualiza el action_time_end de una acción.
+    
+    Args:
+        db: Sesión de base de datos
+        action_id: ID de la acción
+        action_time_end: Nuevo datetime de finalización
+    """
+    action = db.query(models.ActionsPerTurn).filter(
+        models.ActionsPerTurn.id == action_id
+    ).first()
+    
+    if action:
+        action.action_time_end = action_time_end
+        db.flush()

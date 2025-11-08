@@ -1526,7 +1526,7 @@ def test_get_actions_by_filters(db):
         "turn_id": turn.id,
         "player_id": player.id,
         "action_name": "Point your suspicions",
-        "action_type": models.ActionType.INTENTION,
+        "action_type": models.ActionType.INIT,
         "result": models.ActionResult.PENDING
     })
     db.commit()
@@ -1624,3 +1624,274 @@ def test_get_actions_by_filters(db):
         parent_action_id=9999
     )
     assert len(no_match) == 0
+
+
+# ==============================================================================
+# TESTS PARA NUEVAS FUNCIONES NSF (endpoint /instant/not-so-fast)
+# ==============================================================================
+
+def test_get_nsf_start_action_success(db):
+    """Test: get_nsf_start_action encuentra la acción YYY correcta."""
+    from datetime import date
+    
+    # Setup
+    game = models.Game(player_turn_id=None)
+    db.add(game)
+    db.flush()
+    
+    player = models.Player(name="Player1", avatar_src="/avatar.jpg", birthdate=date(1990, 1, 1), is_host=True, order=1)
+    db.add(player)
+    db.flush()
+    
+    # Crear acción XXX (INIT)
+    intention = models.ActionsPerTurn(
+        id_game=game.id,
+        player_id=player.id,
+        action_type=models.ActionType.INIT,
+        action_name="Point your suspicions",
+        result=models.ActionResult.PENDING
+    )
+    db.add(intention)
+    db.flush()
+    
+    # Crear acción YYY (INSTANT_START) triggered by XXX
+    nsf_start = models.ActionsPerTurn(
+        id_game=game.id,
+        player_id=player.id,
+        action_type=models.ActionType.INSTANT,
+        action_name="Instant Start",
+        result=models.ActionResult.PENDING,
+        triggered_by_action_id=intention.id
+    )
+    db.add(nsf_start)
+    db.commit()
+    
+    # Test
+    result = crud.get_nsf_start_action(db, intention.id, game.id)
+    
+    # Assert
+    assert result is not None
+    assert result.id == nsf_start.id
+    assert result.action_type == models.ActionType.INSTANT
+    assert result.action_name == "Instant Start"
+    assert result.triggered_by_action_id == intention.id
+
+
+def test_get_nsf_start_action_not_found(db):
+    """Test: get_nsf_start_action retorna None si no existe YYY."""
+    from datetime import date
+    
+    # Setup
+    game = models.Game(player_turn_id=None)
+    db.add(game)
+    db.flush()
+    
+    player = models.Player(name="Player1", avatar_src="/avatar.jpg", birthdate=date(1990, 1, 1), is_host=True, order=1)
+    db.add(player)
+    db.flush()
+    
+    # Crear acción XXX sin YYY
+    intention = models.ActionsPerTurn(
+        id_game=game.id,
+        player_id=player.id,
+        action_type=models.ActionType.INIT,
+        action_name="Point your suspicions",
+        result=models.ActionResult.PENDING
+    )
+    db.add(intention)
+    db.commit()
+    
+    # Test
+    result = crud.get_nsf_start_action(db, intention.id, game.id)
+    
+    # Assert
+    assert result is None
+
+
+def test_move_card_to_discard(db):
+    """Test: move_card_to_discard mueve una carta de HAND a DISCARD."""
+    from datetime import date
+    
+    # Setup
+    game = models.Game(player_turn_id=None)
+    db.add(game)
+    db.flush()
+    
+    player = models.Player(name="Player1", avatar_src="/avatar.jpg", birthdate=date(1990, 1, 1), is_host=True, order=1)
+    db.add(player)
+    db.flush()
+    
+    card = models.Card(name="Not so fast", description="NSF card", type="INSTANT", img_src="/nsf.png", qty=10)
+    db.add(card)
+    db.flush()
+    
+    # Carta en la mano del jugador
+    card_in_hand = models.CardsXGame(
+        id_game=game.id,
+        id_card=card.id,
+        is_in=models.CardState.HAND,
+        position=1,
+        player_id=player.id,
+        hidden=True
+    )
+    db.add(card_in_hand)
+    db.flush()
+    
+    # Carta ya en discard (para calcular nueva posición)
+    existing_discard = models.CardsXGame(
+        id_game=game.id,
+        id_card=card.id,
+        is_in=models.CardState.DISCARD,
+        position=1,
+        player_id=None,
+        hidden=False
+    )
+    db.add(existing_discard)
+    db.commit()
+    
+    # Test
+    crud.move_card_to_discard(db, card_in_hand.id, game.id)
+    
+    # Assert
+    db.refresh(card_in_hand)
+    assert card_in_hand.is_in == models.CardState.DISCARD
+    assert card_in_hand.position == 1  # Tope del descarte
+    assert card_in_hand.player_id is None
+    assert card_in_hand.hidden is False
+    
+    # Verificar que la carta anterior se movió a posición 2
+    db.refresh(existing_discard)
+    assert existing_discard.position == 2
+
+
+def test_create_nsf_play_action(db):
+    """Test: create_nsf_play_action crea una acción ZZZ correcta."""
+    from datetime import date
+    
+    # Setup
+    game = models.Game(player_turn_id=None)
+    db.add(game)
+    db.flush()
+    
+    player = models.Player(name="Player2", avatar_src="/avatar.jpg", birthdate=date(1990, 1, 1), is_host=False, order=2)
+    db.add(player)
+    db.flush()
+    
+    # Acción XXX
+    intention = models.ActionsPerTurn(
+        id_game=game.id,
+        player_id=player.id,
+        action_type=models.ActionType.INIT,
+        action_name="Point your suspicions",
+        result=models.ActionResult.PENDING
+    )
+    db.add(intention)
+    db.flush()
+    
+    # Acción YYY
+    nsf_start = models.ActionsPerTurn(
+        id_game=game.id,
+        player_id=player.id,
+        action_type=models.ActionType.INSTANT,
+        action_name="Instant Start",
+        result=models.ActionResult.PENDING,
+        triggered_by_action_id=intention.id
+    )
+    db.add(nsf_start)
+    db.commit()
+    
+    # Test
+    from datetime import datetime, timedelta
+    
+    nsf_play = crud.create_nsf_play_action(
+        db=db,
+        game_id=game.id,
+        turn_id=None,
+        player_id=player.id,
+        nsf_start_action_id=nsf_start.id,
+        original_action_id=intention.id,
+        card_id=1,
+        action_time_end=datetime.now() + timedelta(seconds=5)
+    )
+    
+    # Assert
+    assert nsf_play is not None
+    assert nsf_play.action_type == models.ActionType.INSTANT
+    assert nsf_play.action_name == models.ActionName.INSTANT_PLAY
+    assert nsf_play.player_id == player.id
+    assert nsf_play.parent_action_id == nsf_start.id
+    assert nsf_play.triggered_by_action_id == intention.id
+    assert nsf_play.result == models.ActionResult.PENDING
+
+
+def test_update_action_time_end(db):
+    """Test: update_action_time_end actualiza el action_time_end."""
+    from datetime import datetime, timedelta
+    
+    # Setup
+    game = models.Game(player_turn_id=None)
+    db.add(game)
+    db.flush()
+    
+    player = models.Player(name="Player1", avatar_src="/avatar.jpg", birthdate=date(1990, 1, 1), is_host=True, order=1)
+    db.add(player)
+    db.flush()
+    
+    action = models.ActionsPerTurn(
+        id_game=game.id,
+        player_id=player.id,
+        action_type=models.ActionType.INSTANT,
+        action_name="Instant Start",
+        result=models.ActionResult.PENDING
+    )
+    db.add(action)
+    db.commit()
+    
+    # Test
+    new_time = datetime.now() + timedelta(seconds=5)
+    crud.update_action_time_end(db, action.id, new_time)
+    
+    # Assert
+    db.refresh(action)
+    assert action.action_time_end is not None
+    assert abs((action.action_time_end - new_time).total_seconds()) < 1  # Margen de 1 segundo
+
+
+def test_get_action_by_id_with_game_id_filter(db):
+    """Test: get_action_by_id con game_id filtra correctamente."""
+    from datetime import date
+    
+    # Setup
+    game1 = models.Game(player_turn_id=None)
+    game2 = models.Game(player_turn_id=None)
+    db.add_all([game1, game2])
+    db.flush()
+    
+    player = models.Player(name="Player1", avatar_src="/avatar.jpg", birthdate=date(1990, 1, 1), is_host=True, order=1)
+    db.add(player)
+    db.flush()
+    
+    # Acción en game1
+    action_game1 = models.ActionsPerTurn(
+        id_game=game1.id,
+        player_id=player.id,
+        action_type=models.ActionType.INIT,
+        action_name="Action Game 1",
+        result=models.ActionResult.PENDING
+    )
+    db.add(action_game1)
+    db.commit()
+    
+    # Test 1: Buscar con game_id correcto
+    result = crud.get_action_by_id(db, action_game1.id, game1.id)
+    assert result is not None
+    assert result.id == action_game1.id
+    
+    # Test 2: Buscar con game_id incorrecto
+    result_wrong = crud.get_action_by_id(db, action_game1.id, game2.id)
+    assert result_wrong is None
+    
+    # Test 3: Buscar sin game_id (debería funcionar)
+    result_no_filter = crud.get_action_by_id(db, action_game1.id)
+    assert result_no_filter is not None
+    assert result_no_filter.id == action_game1.id

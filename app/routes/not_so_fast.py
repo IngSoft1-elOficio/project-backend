@@ -2,9 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.db.models import Room
+from app.db import crud
 from app.schemas.not_so_fast_schema import (
     StartActionRequest,
-    StartActionResponse
+    StartActionResponse,
+    PlayNSFRequest,
+    PlayNSFResponse
 )
 from app.services.not_so_fast_service import NotSoFastService
 from app.services.game_status_service import build_complete_game_state
@@ -163,5 +166,146 @@ async def start_action(
         raise
     except Exception as e:
         logger.error(f"❌ Error in start_action: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post(
+    "/{room_id}/instant/not-so-fast",
+    response_model=PlayNSFResponse,
+    status_code=200
+)
+async def play_not_so_fast(
+    room_id: int,
+    request: PlayNSFRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint para jugar una carta Not So Fast.
+    
+    Valida que la carta NSF esté en la mano del jugador, crea una nueva acción,
+    actualiza la acción NSF_START con el nuevo tiempo, mueve la carta al descarte,
+    reinicia el timer y emite eventos WebSocket.
+    
+    Args:
+        room_id: ID de la sala
+        request: PlayNSFRequest con actionId (XXX), playerId, cardId
+    
+    Returns:
+        PlayNSFResponse con nsfActionId (ZZZ), nsfStartActionId (YYY), timeRemaining
+    """
+    logger.info(
+        f"POST /api/game/{room_id}/instant/not-so-fast - "
+        f"Player {request.playerId} plays NSF on action {request.actionId}"
+    )
+    
+    # 1. Validar que la room existe
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    
+    if not room.id_game:
+        raise HTTPException(status_code=400, detail="Room has no active game")
+    
+    game_id = room.id_game
+    
+    try:
+        # 2. Ejecutar lógica de negocio (crear acción ZZZ, actualizar YYY)
+        service = NotSoFastService(db)
+        nsf_action_id, nsf_start_action_id, player_name = service.play_nsf_card(
+            room_id=room_id,
+            action_id=request.actionId,
+            player_id=request.playerId,
+            card_id=request.cardId
+        )
+        
+        # 3. Mover la carta NSF al descarte
+        crud.move_card_to_discard(db, request.cardId, game_id)
+        
+        # 4. Obtener el estado actualizado del juego
+        ws_service = get_websocket_service()
+        game_state = build_complete_game_state(db, game_id)
+        
+        # 5. Emitir eventos WebSocket
+        
+        # 5a. Actualización de estado público (descarte actualizado)
+        await ws_service.notificar_estado_partida(
+            room_id=room_id,
+            jugador_que_actuo=request.playerId,
+            game_state=game_state
+        )
+        
+        # 5b. Evento NSF_PLAYED
+        await ws_service.notificar_nsf_played(
+            room_id=room_id,
+            action_id=nsf_start_action_id,  # YYY
+            nsf_action_id=nsf_action_id,    # ZZZ
+            player_id=request.playerId,
+            card_id=request.cardId,
+            player_name=player_name
+        )
+        
+        # 6. Reiniciar el timer (cancelar el viejo y crear uno nuevo con 5s)
+        timer_manager = get_timer_manager()
+        
+        async def on_tick(room_id: int, nsf_action_id: int, time_remaining: int):
+            """Callback para cada tick del timer."""
+            total_time = 5
+            elapsed_time = total_time - time_remaining
+            
+            await ws_service.notificar_nsf_counter_tick(
+                room_id=room_id,
+                action_id=nsf_action_id,
+                remaining_time=time_remaining,
+                elapsed_time=elapsed_time
+            )
+        
+        async def on_complete(room_id: int, nsf_action_id: int, was_cancelled: bool):
+            """Callback cuando el timer termina."""
+            if not was_cancelled:
+                # Timer terminó naturalmente (llegó a 0)
+                logger.info(
+                    f"⏰ Timer NSF terminó para action {nsf_action_id} - "
+                    f"Calculando resultado según NSF jugadas..."
+                )
+                
+                # Llamar al handler que cuenta NSF y determina el resultado
+                await handle_nsf_timeout(
+                    db=db,
+                    room_id=room_id,
+                    intention_action_id=request.actionId,  # XXX
+                    nsf_action_id=nsf_action_id            # YYY
+                )
+        
+        # Reiniciar timer (esto cancela el viejo y crea uno nuevo)
+        await timer_manager.start_timer(
+            room_id=room_id,
+            nsf_action_id=nsf_start_action_id,  # YYY (mismo ID, se reinicia)
+            time_remaining=5,
+            on_tick_callback=on_tick,
+            on_complete_callback=on_complete
+        )
+        
+        logger.info(
+            f"✅ NSF played successfully - "
+            f"nsfActionId={nsf_action_id}, "
+            f"nsfStartActionId={nsf_start_action_id}, "
+            f"timer restarted"
+        )
+        
+        message = f"Player {player_name} jugó Not So Fast"
+        
+        return PlayNSFResponse(
+            success=True,
+            nsfActionId=nsf_action_id,
+            nsfStartActionId=nsf_start_action_id,
+            timeRemaining=5,
+            message=message
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error in play_not_so_fast: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
