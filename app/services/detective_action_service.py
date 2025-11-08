@@ -148,13 +148,6 @@ class DetectiveActionService:
         # Validar que el target existe y pertenece al juego
         target_player = self._get_player(request.targetPlayerId, game_id)
         
-        # No puede seleccionarse a sí mismo
-        if request.targetPlayerId == owner_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot target yourself"
-            )
-        
         # Guardar el target_player_id en la acción
         # Usamos el campo player_target que ya existe en ActionsPerTurn
         action.player_target = request.targetPlayerId
@@ -398,13 +391,6 @@ class DetectiveActionService:
                 raise HTTPException(
                     status_code=400,
                     detail="targetPlayerId is required for this set type"
-                )
-            
-            # No puede ser el mismo owner
-            if request.targetPlayerId == owner_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Cannot target yourself"
                 )
             
             return request.targetPlayerId
