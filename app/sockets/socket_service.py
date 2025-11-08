@@ -651,6 +651,60 @@ class WebSocketService:
             f"🏁 Emitted nsf_counter_complete to room {room_id}: "
             f"Action {action_id} result={final_result} - {message}"
         )
+    
+    async def notificar_accion_cancelada_ejecutada(
+        self,
+        room_id: int,
+        action_id: int,
+        player_id: int,
+        message: str
+    ):
+        """
+        Notifica que una acción cancelada fue ejecutada sin efectos.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción original (XXX)
+            player_id: ID del jugador que ejecutó la acción
+            message: Mensaje descriptivo de lo que ocurrió
+        """
+        mensaje = {
+            "type": "cancelled_action_executed",
+            "action_id": action_id,
+            "player_id": player_id,
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "cancelled_action_executed", mensaje)
+        logger.info(
+            f"🚫 Emitted cancelled_action_executed to room {room_id}: "
+            f"Action {action_id} - {message}"
+        )
+
+_websocket_service = None
+
+def get_websocket_service() -> WebSocketService:
+    global _websocket_service
+    if _websocket_service is None:
+        _websocket_service = WebSocketService()
+    return _websocket_service
+
+_websocket_service = None
+
+def get_websocket_service() -> WebSocketService:
+    global _websocket_service
+    if _websocket_service is None:
+        _websocket_service = WebSocketService()
+    return _websocket_service
+
+_websocket_service = None
+
+def get_websocket_service() -> WebSocketService:
+    global _websocket_service
+    if _websocket_service is None:
+        _websocket_service = WebSocketService()
+    return _websocket_service
 
 _websocket_service = None
 

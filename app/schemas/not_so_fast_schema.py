@@ -225,3 +225,58 @@ class ValidActionEvent(BaseModel):
                 "message": "Player 1 plays Another Victim"
             }
         }
+
+
+# ========================
+# CANCEL NSF ENDPOINT
+# ========================
+
+class CancelNSFRequest(BaseModel):
+    """
+    Request para ejecutar una acción cancelada por NSF sin efectos.
+    
+    Se usa cuando el frontend recibe NSF_COUNTER_COMPLETE con final_result="cancelled"
+    y necesita "simular" que la acción se ejecutó pero sin efectos.
+    
+    Tres casos posibles:
+    1. CREATE_SET: Crea el set pero sin ejecutar efecto (excepto Eileen Brent)
+    2. EVENT: Mueve carta al discard debajo de las NSF
+    3. ADD_TO_SET: Agrega carta al set pero sin efecto
+    """
+    actionId: int = Field(..., description="ID de la acción original (XXX) que fue cancelada")
+    playerId: int = Field(..., description="ID del jugador que inició la acción")
+    cardIds: List[int] = Field(..., description="Lista de cardsXgame.id involucrados en la acción")
+    additionalData: dict = Field(
+        ..., 
+        description="Datos adicionales según el tipo de acción (actionType, player_target, setPosition)"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "actionId": 123,
+                "playerId": 2,
+                "cardIds": [45, 46],
+                "additionalData": {
+                    "actionType": "CREATE_SET",
+                    "player_target": None,
+                    "setPosition": None
+                }
+            }
+        }
+
+
+class CancelNSFResponse(BaseModel):
+    """
+    Response del endpoint /cancel que confirma la ejecución sin efectos.
+    """
+    success: bool = Field(..., description="Indica si la cancelación fue procesada exitosamente")
+    message: str = Field(..., description="Mensaje descriptivo de lo que ocurrió")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "message": "Player John jugó Hercule Poirot/Miss Marple pero fue cancelado por NSF - Set created without effect"
+            }
+        }

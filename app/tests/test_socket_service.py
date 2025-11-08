@@ -413,3 +413,63 @@ async def test_notificar_nsf_counter_complete_continue(service, mock_ws_manager)
     assert payload["action_id"] == 108
     assert payload["final_result"] == "continue"
     assert payload["message"] == "NSF counter finished - 2 NSF played, action continues"
+
+
+@pytest.mark.asyncio
+async def test_notificar_accion_cancelada_ejecutada_create_set(service, mock_ws_manager):
+    """Test notificar ejecución de acción cancelada tipo CREATE_SET"""
+    await service.notificar_accion_cancelada_ejecutada(
+        room_id=50,
+        action_id=109,
+        player_id=9,
+        message="Jugador CancelPlayer intentó bajar set de detective Parker Pyne creado pero efecto no realizado"
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    room_id, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert room_id == 50
+    assert event == "cancelled_action_executed"
+    assert payload["type"] == "cancelled_action_executed"
+    assert payload["action_id"] == 109
+    assert payload["player_id"] == 9
+    assert "Parker Pyne" in payload["message"]
+    assert "timestamp" in payload
+
+
+@pytest.mark.asyncio
+async def test_notificar_accion_cancelada_ejecutada_event(service, mock_ws_manager):
+    """Test notificar ejecución de acción cancelada tipo EVENT"""
+    await service.notificar_accion_cancelada_ejecutada(
+        room_id=55,
+        action_id=110,
+        player_id=10,
+        message="Jugador EventPlayer jugó carta evento Point your suspicions que va al mazo de descarte"
+    )
+
+    _, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert event == "cancelled_action_executed"
+    assert payload["action_id"] == 110
+    assert payload["player_id"] == 10
+    assert "Point your suspicions" in payload["message"]
+    assert "mazo de descarte" in payload["message"]
+
+
+@pytest.mark.asyncio
+async def test_notificar_accion_cancelada_ejecutada_add_to_set(service, mock_ws_manager):
+    """Test notificar ejecución de acción cancelada tipo ADD_TO_SET"""
+    await service.notificar_accion_cancelada_ejecutada(
+        room_id=60,
+        action_id=111,
+        player_id=11,
+        message="Jugador AddPlayer intentó agregar carta a set Miss Marple ampliado pero efecto no realizado"
+    )
+
+    _, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert event == "cancelled_action_executed"
+    assert payload["action_id"] == 111
+    assert payload["player_id"] == 11
+    assert "Miss Marple" in payload["message"]
+    assert "ampliado pero efecto no realizado" in payload["message"]

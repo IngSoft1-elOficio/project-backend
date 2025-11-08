@@ -46,8 +46,8 @@ INSERT INTO cardsXgame (id_game, id_card, is_in, position, player_id, hidden) VA
 (1, 17, 'HAND', 2, 1, true),  -- Point Your Suspicions (card_id=17, cancelable)
 (1, 4, 'HAND', 3, 1, true),   -- Harley Quin Wildcard
 (1, 5, 'HAND', 4, 1, true),   -- Ariadne Oliver
-(1, 20, 'HAND', 5, 1, true),  -- Look into the Ashes
-(1, 21, 'HAND', 6, 1, true);  -- Card Trade
+(1, 7, 'HAND', 5, 1, true),  -- Parker Pyne
+(1, 7, 'HAND', 6, 1, true);  -- Parker Pyne
 
 -- SECRETS (3 secretos ocultos)
 INSERT INTO cardsXgame (id_game, id_card, is_in, position, player_id, hidden) VALUES
@@ -62,7 +62,7 @@ INSERT INTO cardsXgame (id_game, id_card, is_in, position, player_id, hidden) VA
 INSERT INTO cardsXgame (id_game, id_card, is_in, position, player_id, hidden) VALUES
 (1, 13, 'HAND', 1, 2, true),  -- NSF (card_id=13)
 (1, 6, 'HAND', 2, 2, true),   -- Miss Marple
-(1, 7, 'HAND', 3, 2, true),   -- Parker Pyne
+(1, 21, 'HAND', 3, 2, true),   -- Card Trade
 (1, 18, 'HAND', 4, 2, true),  -- Dead Card Folly
 (1, 19, 'HAND', 5, 2, true),  -- Another Victim
 (1, 22, 'HAND', 6, 2, true);  -- One More

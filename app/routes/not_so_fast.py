@@ -7,7 +7,9 @@ from app.schemas.not_so_fast_schema import (
     StartActionRequest,
     StartActionResponse,
     PlayNSFRequest,
-    PlayNSFResponse
+    PlayNSFResponse,
+    CancelNSFRequest,
+    CancelNSFResponse
 )
 from app.services.not_so_fast_service import NotSoFastService
 from app.services.game_status_service import build_complete_game_state
@@ -307,5 +309,110 @@ async def play_not_so_fast(
         raise
     except Exception as e:
         logger.error(f"❌ Error in play_not_so_fast: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post(
+    "/{room_id}/instant/not-so-fast/cancel",
+    response_model=CancelNSFResponse,
+    status_code=200
+)
+async def cancel_nsf_action(
+    room_id: int,
+    request: CancelNSFRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint para ejecutar una acción que fue cancelada por Not So Fast.
+    
+    Simula que la acción fue 'jugada' pero sin ejecutar su efecto real.
+    Las cartas involucradas se mueven según las reglas especiales:
+    
+    - CREATE_SET: Si contiene Eileen Brent, las cartas quedan en HAND.
+                  Si no, se crea el set sin ejecutar efecto y las cartas van al set.
+    - EVENT: La carta se inserta en el descarte en la posición nsf_count+1 
+             (debajo de todas las NSF jugadas).
+    - ADD_TO_SET: 
+        * Ariadne Oliver: Se agrega al set del jugador target (otro jugador).
+        * Eileen Brent: Queda en HAND del jugador que la jugó.
+        * Otras: Se agregan al set del jugador que las jugó.
+    
+    Args:
+        room_id: ID de la sala
+        request: CancelNSFRequest con:
+            - actionId: ID de la acción de intención (XXX) que fue cancelada
+            - playerId: ID del jugador que ejecuta la acción cancelada
+            - cardIds: IDs de las cartas involucradas
+            - additionalData: Datos adicionales según tipo de acción (actionType, etc.)
+    
+    Returns:
+        CancelNSFResponse con success y message descriptivo
+    """
+    logger.info(
+        f"POST /api/game/{room_id}/instant/not-so-fast/cancel - "
+        f"Player {request.playerId} executes cancelled action {request.actionId}"
+    )
+    
+    # 1. Validar que la room existe
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    
+    if not room.id_game:
+        raise HTTPException(status_code=400, detail="Room has no active game")
+    
+    game_id = room.id_game
+    
+    try:
+        # 2. Ejecutar lógica de negocio (procesar acción cancelada)
+        service = NotSoFastService(db)
+        message = service.cancel_nsf_action(
+            room_id=room_id,
+            action_id=request.actionId,
+            player_id=request.playerId,
+            card_ids=request.cardIds,
+            additional_data=request.additionalData
+        )
+        
+        # 3. Confirmar los cambios en la base de datos
+        db.commit()
+        
+        # 4. Obtener el estado actualizado del juego
+        ws_service = get_websocket_service()
+        game_state = build_complete_game_state(db, game_id)
+        
+        # 5. Emitir eventos WebSocket
+        
+        # 5a. Actualización de estado público (cartas movidas, sets actualizados, etc.)
+        await ws_service.notificar_estado_partida(
+            room_id=room_id,
+            jugador_que_actuo=request.playerId,
+            game_state=game_state
+        )
+        
+        # 5b. Evento CANCELLED_ACTION_EXECUTED
+        await ws_service.notificar_accion_cancelada_ejecutada(
+            room_id=room_id,
+            action_id=request.actionId,
+            player_id=request.playerId,
+            message=message
+        )
+        
+        logger.info(
+            f"✅ Cancelled action executed successfully - "
+            f"actionId={request.actionId}, "
+            f"playerId={request.playerId}"
+        )
+        
+        return CancelNSFResponse(
+            success=True,
+            message=message
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error in cancel_nsf_action: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

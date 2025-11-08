@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from typing import List, Tuple, Optional
 from fastapi import HTTPException
 from datetime import datetime, timedelta
+import logging
 
 from ..db.models import (
     Game, Player, CardsXGame, ActionsPerTurn, Turn, Room,
@@ -12,6 +13,8 @@ from ..db.models import (
 )
 from ..db import crud
 from ..schemas.not_so_fast_schema import StartActionRequest, StartActionResponse
+
+logger = logging.getLogger(__name__)
 
 
 class NotSoFastService:
@@ -25,6 +28,7 @@ class NotSoFastService:
     TUPPENCE_BERESFORD_ID = 10
     HARLEY_QUIN_CARD_ID = 4
     ARIADNE_OLIVER_CARD_ID = 5
+    EILEEN_BRENT_CARD_ID = 9
     
     # Tiempo de ventana NSF en segundos
     NSF_WINDOW_DURATION = 5
@@ -673,4 +677,356 @@ class NotSoFastService:
             nsf_play_action.id,
             nsf_start_action.id,
             player.name
+        )
+    
+    def cancel_nsf_action(
+        self,
+        room_id: int,
+        action_id: int,
+        player_id: int,
+        card_ids: List[int],
+        additional_data: dict
+    ) -> str:
+        """
+        Ejecuta una acción cancelada por NSF sin efectos.
+        
+        Tres casos:
+        1. CREATE_SET: Crea el set pero sin ejecutar efecto (excepto Eileen Brent)
+        2. EVENT: Mueve carta al discard debajo de las NSF
+        3. ADD_TO_SET: Agrega carta al set pero sin efecto
+        
+        Args:
+            room_id: ID de la sala
+            action_id: ID de la acción original (XXX) que fue cancelada
+            player_id: ID del jugador que inició la acción
+            card_ids: Lista de cardsXgame.id involucrados
+            additional_data: Dict con actionType, player_target, setPosition
+        
+        Returns:
+            str: Mensaje descriptivo de lo que ocurrió
+        
+        Raises:
+            HTTPException con códigos 400, 404
+        """
+        # 1. Validaciones iniciales
+        game_id = self._get_game_id_from_room(room_id)
+        player = self._get_player(player_id, game_id)
+        
+        # 2. Validar que la acción existe y está CANCELADA
+        action = crud.get_action_by_id(self.db, action_id, game_id)
+        if not action:
+            raise HTTPException(status_code=404, detail="Action not found")
+        
+        if action.result != ActionResult.CANCELLED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Action must be CANCELLED (current: {action.result})"
+            )
+        
+        # 3. Procesar según tipo de acción
+        action_type = additional_data.get("actionType")
+        
+        if action_type == "CREATE_SET":
+            return self._cancel_create_set(game_id, player_id, card_ids, player.name)
+        
+        elif action_type == "EVENT":
+            return self._cancel_event(game_id, action_id, card_ids, player.name)
+        
+        elif action_type == "ADD_TO_SET":
+            return self._cancel_add_to_set(
+                game_id, player_id, card_ids, additional_data, player.name
+            )
+        
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid actionType: {action_type}"
+            )
+    
+    def _cancel_create_set(
+        self,
+        game_id: int,
+        player_id: int,
+        card_ids: List[int],
+        player_name: str
+    ) -> str:
+        """
+        Caso 1: CREATE_SET cancelado.
+        
+        - Si contiene Eileen Brent (id=9): Las cartas quedan en HAND (no pasa nada)
+        - Si no: Crea el set pero SIN ejecutar efecto
+        
+        Mensajes:
+        - Con Eileen: "El jugador {name} jugó bajar set de detective pero fue cancelado por NSF. 
+                       Set creado de Eileen vuelve a la mano del jugador {name}"
+        - Sin Eileen: "El jugador {name} jugó bajar set de detective pero fue cancelado por NSF. 
+                       Set de {nombre de detective} creado pero efecto no realizado"
+        """
+        # Verificar si alguna carta es Eileen Brent (id_card == 9)
+        if crud.check_set_contains_card(self.db, card_ids, self.EILEEN_BRENT_CARD_ID):
+            logger.info(
+                f"Eileen Brent detected in cancelled CREATE_SET - "
+                f"Cards stay in hand for player {player_id}"
+            )
+            return (
+                f"El jugador {player_name} jugó bajar set de detective pero fue cancelado por NSF. "
+                f"Set creado de Eileen vuelve a la mano del jugador {player_name}"
+            )
+        
+        # Obtener las cartas (validar que están en HAND)
+        cards = crud.get_cards_in_hand_by_ids(self.db, card_ids, player_id, game_id)
+        if len(cards) != len(card_ids):
+            raise HTTPException(
+                status_code=400,
+                detail="Some cards are not in player's hand"
+            )
+        
+        # Obtener siguiente posición de set
+        next_position = crud.get_max_position_for_player_by_state(
+            self.db, game_id, player_id, CardState.DETECTIVE_SET
+        ) + 1
+        
+        # Mover cartas a DETECTIVE_SET
+        crud.update_cards_state(
+            self.db, 
+            cards, 
+            CardState.DETECTIVE_SET, 
+            next_position, 
+            hidden=False
+        )
+        
+        # Obtener nombre del detective del set
+        detective_name = crud.get_detective_set_name(self.db, card_ids)
+        
+        logger.info(
+            f"✅ CREATE_SET cancelled executed - "
+            f"Player {player_id}, detective: {detective_name}, position: {next_position}"
+        )
+        
+        return (
+            f"El jugador {player_name} jugó bajar set de detective pero fue cancelado por NSF. "
+            f"Set de {detective_name} creado pero efecto no realizado"
+        )
+    
+    def _cancel_event(
+        self,
+        game_id: int,
+        action_id: int,
+        card_ids: List[int],
+        player_name: str
+    ) -> str:
+        """
+        Caso 2: EVENT cancelado.
+        
+        Mueve la carta al discard DEBAJO de todas las NSF jugadas.
+        
+        Mensaje:
+        "El jugador {name} jugó carta evento pero fue cancelado por NSF. 
+         La carta {nombre de la carta} se encuentra ahora en el mazo de descarte."
+        """
+        if len(card_ids) != 1:
+            raise HTTPException(
+                status_code=400,
+                detail="EVENT actions should have exactly 1 card"
+            )
+        
+        card_xgame_id = card_ids[0]
+        
+        # Obtener la acción XXX y buscar YYY
+        action_xxx = crud.get_action_by_id(self.db, action_id, game_id)
+        nsf_start_action = crud.get_nsf_start_action(
+            self.db, 
+            triggered_by_action_id=action_xxx.id,
+            game_id=game_id
+        )
+        
+        if not nsf_start_action:
+            raise HTTPException(
+                status_code=400,
+                detail="NSF start action not found for this action"
+            )
+        
+        # Contar cuántas NSF se jugaron (acciones ZZZ)
+        nsf_chain = crud.get_actions_by_filters(
+            self.db,
+            parent_action_id=nsf_start_action.id,
+            triggered_by_action_id=action_xxx.id
+        )
+        nsf_count = len(nsf_chain)
+        
+        # La carta va DEBAJO de las NSF (position = nsf_count + 1)
+        target_position = nsf_count + 1
+        
+        # Incrementar posiciones de cartas antiguas en discard
+        crud.increment_discard_positions_from(self.db, game_id, target_position)
+        
+        # Obtener info de la carta para el mensaje
+        card_xgame = crud.get_card_xgame_by_id(self.db, card_xgame_id)
+        if not card_xgame:
+            raise HTTPException(status_code=404, detail="Card not found")
+        
+        # Obtener nombre de la carta desde tabla Card
+        card_name = crud.get_card_name(self.db, card_xgame.id_card)
+        
+        # Mover carta al discard
+        crud.update_single_card_state(
+            self.db,
+            card_xgame_id=card_xgame_id,
+            new_state=CardState.DISCARD,
+            new_position=target_position,
+            player_id=None,
+            hidden=False
+        )
+        
+        logger.info(
+            f"✅ EVENT cancelled executed - "
+            f"Card: {card_name}, Position: {target_position} (below {nsf_count} NSF)"
+        )
+        
+        return (
+            f"El jugador {player_name} jugó carta evento pero fue cancelado por NSF. "
+            f"La carta {card_name} se encuentra ahora en el mazo de descarte."
+        )
+    
+    def _cancel_add_to_set(
+        self,
+        game_id: int,
+        player_id: int,
+        card_ids: List[int],
+        additional_data: dict,
+        player_name: str
+    ) -> str:
+        """
+        Caso 3: ADD_TO_SET cancelado.
+        
+        Tres subcasos:
+        - Ariadne Oliver (id=5): Agrega a set ajeno
+        - Eileen Brent (id=9): La carta queda en HAND
+        - Otros: Agrega a set propio
+        
+        Mensajes:
+        - Caso 4 (normal): "El jugador {name} jugó agregar carta a set de detective pero fue cancelado por NSF. 
+                            Set de {nombre de detective} ampliado pero efecto no realizado"
+        - Caso 5 (Eileen): "El jugador {name} jugó agregar carta a set de detective pero fue cancelado por NSF. 
+                            La carta Eileen vuelve a la mano del jugador {name}"
+        - Caso 6 (Oliver): "El jugador {name} jugó agregar carta a set de detective pero fue cancelado por NSF. 
+                            Oliver agregada a set {nombre del detective del set} del jugador {nombre}, no se realiza su efecto."
+        """
+        if len(card_ids) != 1:
+            raise HTTPException(
+                status_code=400,
+                detail="ADD_TO_SET actions should have exactly 1 card"
+            )
+        
+        card_xgame_id = card_ids[0]
+        
+        # Obtener la carta
+        card_xgame = crud.get_card_xgame_by_id(self.db, card_xgame_id)
+        if not card_xgame:
+            raise HTTPException(status_code=404, detail="Card not found")
+        
+        card_info = crud.get_card_by_id(self.db, card_xgame.id_card)
+        if not card_info:
+            raise HTTPException(status_code=404, detail="Card info not found")
+        
+        card_name = card_info.name
+        
+        # SUBCASO 5: Eileen Brent - la carta queda en HAND
+        if card_info.id == self.EILEEN_BRENT_CARD_ID:
+            logger.info(
+                f"🚫 Eileen Brent in ADD_TO_SET cancelled - "
+                f"Card stays in hand for player {player_id}"
+            )
+            return (
+                f"El jugador {player_name} jugó agregar carta a set de detective pero fue cancelado por NSF. "
+                f"La carta Eileen vuelve a la mano del jugador {player_name}"
+            )
+        
+        # SUBCASO 6: Ariadne Oliver - agregar a set ajeno
+        if card_info.id == self.ARIADNE_OLIVER_CARD_ID:
+            player_target = additional_data.get("player_target")
+            set_position = additional_data.get("setPosition")
+            
+            if not player_target or not set_position:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Ariadne Oliver requires player_target and setPosition"
+                )
+            
+            # Validar que el set existe
+            target_set = crud.get_detective_set_cards_by_position(
+                self.db, game_id, player_target, set_position
+            )
+            if not target_set:
+                raise HTTPException(status_code=404, detail="Target set not found")
+            
+            # Obtener nombre del detective del set
+            target_set_ids = [card.id for card in target_set]
+            detective_name = crud.get_detective_set_name(self.db, target_set_ids)
+            
+            # Obtener nombre del jugador dueño del set
+            target_player_name = crud.get_player_name(self.db, player_target)
+            
+            # Agregar carta al set ajeno
+            crud.update_single_card_state(
+                self.db,
+                card_xgame_id=card_xgame_id,
+                new_state=CardState.DETECTIVE_SET,
+                new_position=set_position,
+                player_id=player_target,  # Ahora pertenece al otro jugador
+                hidden=False
+            )
+            
+            logger.info(
+                f"✅ ADD_TO_SET (Ariadne Oliver) cancelled executed - "
+                f"Card added to player {player_target}'s set at position {set_position}"
+            )
+            
+            return (
+                f"El jugador {player_name} jugó agregar carta a set de detective pero fue cancelado por NSF. "
+                f"Oliver agregada a set {detective_name} del jugador {target_player_name}, no se realiza su efecto."
+            )
+        
+        # SUBCASO 4: Otros detectives - agregar a set propio
+        set_position = additional_data.get("setPosition")
+        if not set_position:
+            raise HTTPException(status_code=400, detail="setPosition required")
+        
+        # Validar player_target si viene (debería ser el mismo jugador)
+        player_target = additional_data.get("player_target")
+        if player_target and player_target != player_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Non-Ariadne cards can only be added to own sets"
+            )
+        
+        # Validar que el set existe
+        target_set = crud.get_detective_set_cards_by_position(
+            self.db, game_id, player_id, set_position
+        )
+        if not target_set:
+            raise HTTPException(status_code=404, detail="Set not found")
+        
+        # Obtener nombre del detective del set
+        target_set_ids = [card.id for card in target_set]
+        detective_name = crud.get_detective_set_name(self.db, target_set_ids)
+        
+        # Agregar carta al set propio
+        crud.update_single_card_state(
+            self.db,
+            card_xgame_id=card_xgame_id,
+            new_state=CardState.DETECTIVE_SET,
+            new_position=set_position,
+            player_id=player_id,
+            hidden=False
+        )
+        
+        logger.info(
+            f"✅ ADD_TO_SET cancelled executed - "
+            f"Card {card_name} added to own set at position {set_position}"
+        )
+        
+        return (
+            f"El jugador {player_name} jugó agregar carta a set de detective pero fue cancelado por NSF. "
+            f"Set de {detective_name} ampliado pero efecto no realizado"
         )
