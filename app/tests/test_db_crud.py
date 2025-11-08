@@ -1493,3 +1493,134 @@ def test_get_room_by_game_id(db):
     game2 = crud.create_game(db, {})
     no_room = crud.get_room_by_game_id(db, game2.id)
     assert no_room is None
+
+
+# ------------------------------
+# TESTS NOT SO FAST (NSF)
+# ------------------------------
+def test_get_actions_by_filters(db):
+    """Test filtrar acciones por parent_action_id, triggered_by_action_id y action_name"""
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Mesa 1", "status": "INGAME", "id_game": game.id})
+    player = crud.create_player(db, {
+        "name": "Ana",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 5, 10),
+        "id_room": room.id,
+        "is_host": True
+    })
+    
+    turn = models.Turn(
+        number=1,
+        id_game=game.id,
+        player_id=player.id,
+        status=models.TurnStatus.IN_PROGRESS
+    )
+    db.add(turn)
+    db.commit()
+    db.refresh(turn)
+    
+    # Crear acción de intención (XXX)
+    intention_action = crud.create_action(db, {
+        "id_game": game.id,
+        "turn_id": turn.id,
+        "player_id": player.id,
+        "action_name": "Point your suspicions",
+        "action_type": models.ActionType.INTENTION,
+        "result": models.ActionResult.PENDING
+    })
+    db.commit()
+    db.refresh(intention_action)
+    
+    # Crear acción NSF start (YYY)
+    nsf_start_action = crud.create_action(db, {
+        "id_game": game.id,
+        "turn_id": turn.id,
+        "player_id": player.id,
+        "action_name": models.ActionName.INSTANT_START,
+        "action_type": models.ActionType.INSTANT,
+        "result": models.ActionResult.PENDING,
+        "triggered_by_action_id": intention_action.id
+    })
+    db.commit()
+    db.refresh(nsf_start_action)
+    
+    # Crear 3 acciones NSF jugadas (ZZZ1, ZZZ2, ZZZ3)
+    nsf_actions = []
+    for i in range(3):
+        nsf_action = crud.create_action(db, {
+            "id_game": game.id,
+            "turn_id": turn.id,
+            "player_id": player.id,
+            "action_name": "NOT_SO_FAST",
+            "action_type": models.ActionType.INSTANT,
+            "result": models.ActionResult.PENDING,
+            "parent_action_id": nsf_start_action.id,
+            "triggered_by_action_id": intention_action.id
+        })
+        db.commit()
+        db.refresh(nsf_action)
+        nsf_actions.append(nsf_action)
+    
+    # Crear otra acción de otro jugador para noise
+    other_action = crud.create_action(db, {
+        "id_game": game.id,
+        "turn_id": turn.id,
+        "player_id": player.id,
+        "action_name": "OTHER_ACTION",
+        "action_type": models.ActionType.DISCARD,
+        "result": models.ActionResult.SUCCESS
+    })
+    db.commit()
+    
+    # Test 1: Filtrar por parent_action_id
+    filtered_by_parent = crud.get_actions_by_filters(
+        db, 
+        parent_action_id=nsf_start_action.id
+    )
+    assert len(filtered_by_parent) == 3
+    assert all(action.parent_action_id == nsf_start_action.id for action in filtered_by_parent)
+    
+    # Test 2: Filtrar por triggered_by_action_id
+    filtered_by_trigger = crud.get_actions_by_filters(
+        db,
+        triggered_by_action_id=intention_action.id
+    )
+    assert len(filtered_by_trigger) == 4  # YYY + 3 ZZZ
+    assert all(action.triggered_by_action_id == intention_action.id for action in filtered_by_trigger)
+    
+    # Test 3: Filtrar por action_name
+    filtered_by_name = crud.get_actions_by_filters(
+        db,
+        action_name="NOT_SO_FAST"
+    )
+    assert len(filtered_by_name) == 3
+    assert all(action.action_name == "NOT_SO_FAST" for action in filtered_by_name)
+    
+    # Test 4: Filtrar por combinación (parent + trigger)
+    filtered_combined = crud.get_actions_by_filters(
+        db,
+        parent_action_id=nsf_start_action.id,
+        triggered_by_action_id=intention_action.id
+    )
+    assert len(filtered_combined) == 3  # Solo las ZZZ
+    
+    # Test 5: Filtrar por combinación completa (parent + trigger + name)
+    filtered_all = crud.get_actions_by_filters(
+        db,
+        parent_action_id=nsf_start_action.id,
+        triggered_by_action_id=intention_action.id,
+        action_name="NOT_SO_FAST"
+    )
+    assert len(filtered_all) == 3
+    
+    # Test 6: Sin filtros (debería traer todas las acciones del juego)
+    all_actions = crud.get_actions_by_filters(db)
+    assert len(all_actions) >= 5  # XXX + YYY + 3 ZZZ + OTHER
+    
+    # Test 7: Filtro que no matchea nada
+    no_match = crud.get_actions_by_filters(
+        db,
+        parent_action_id=9999
+    )
+    assert len(no_match) == 0

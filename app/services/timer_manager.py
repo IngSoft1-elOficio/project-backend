@@ -156,9 +156,14 @@ class TimerManager:
                 )
         
         except asyncio.CancelledError:
-            # Timer fue cancelado explícitamente
-            logger.info(f"🛑 Timer cancelado para NSF action {timer.nsf_action_id}")
-            raise
+            # Timer fue cancelado explícitamente (por cancel_timer())
+            logger.info(f"🛑 Timer cancelado explícitamente para NSF action {timer.nsf_action_id}")
+            # Llamar al callback de completado con was_cancelled=True
+            await on_complete_callback(
+                timer.room_id,
+                timer.nsf_action_id,
+                was_cancelled=True
+            )
         
         except Exception as e:
             logger.error(

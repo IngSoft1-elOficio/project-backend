@@ -249,3 +249,161 @@ async def test_notificar_social_disgrace_update_lista_vacia(service, mock_ws_man
     assert payload["players_in_disgrace"] == []
     assert payload["change"]["action"] == "exited"
     assert payload["message"] == "María ha salido de desgracia social"
+
+
+
+# ---------------
+# Not So Fast (NSF) notifications
+# ---------------
+
+@pytest.mark.asyncio
+async def test_notificar_valid_action(service, mock_ws_manager):
+    """Test notificar acción válida (VALID_ACTION)"""
+    await service.notificar_valid_action(
+        room_id=15,
+        action_id=100,
+        player_id=5,
+        action_type="EVENT",
+        action_name="Point your suspicions",
+        cancellable=True
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    room_id, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert room_id == 15
+    assert event == "valid_action"
+    assert payload["type"] == "valid_action"
+    assert payload["action_id"] == 100
+    assert payload["player_id"] == 5
+    assert payload["action_type"] == "EVENT"
+    assert payload["action_name"] == "Point your suspicions"
+    assert payload["cancellable"] is True
+    assert "timestamp" in payload
+
+
+@pytest.mark.asyncio
+async def test_notificar_valid_action_no_cancelable(service, mock_ws_manager):
+    """Test notificar acción válida pero no cancelable"""
+    await service.notificar_valid_action(
+        room_id=20,
+        action_id=101,
+        player_id=6,
+        action_type="EVENT",
+        action_name="Cards off the table",
+        cancellable=False
+    )
+
+    _, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert payload["cancellable"] is False
+    assert payload["action_name"] == "Cards off the table"
+
+
+@pytest.mark.asyncio
+async def test_notificar_nsf_counter_start(service, mock_ws_manager):
+    """Test notificar inicio de ventana NSF (NSF_COUNTER_START)"""
+    await service.notificar_nsf_counter_start(
+        room_id=25,
+        action_id=102,
+        nsf_action_id=103,
+        player_id=7,
+        action_type="CREATE_SET",
+        action_name="Create Marple Set",
+        time_remaining=5
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    room_id, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert room_id == 25
+    assert event == "nsf_counter_start"
+    assert payload["type"] == "nsf_counter_start"
+    assert payload["action_id"] == 102
+    assert payload["nsf_action_id"] == 103
+    assert payload["player_id"] == 7
+    assert payload["action_type"] == "CREATE_SET"
+    assert payload["action_name"] == "Create Marple Set"
+    assert payload["time_remaining"] == 5
+    assert "timestamp" in payload
+
+
+@pytest.mark.asyncio
+async def test_notificar_nsf_counter_tick(service, mock_ws_manager):
+    """Test notificar tick del contador NSF (NSF_COUNTER_TICK)"""
+    await service.notificar_nsf_counter_tick(
+        room_id=30,
+        action_id=104,
+        remaining_time=3,
+        elapsed_time=2
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    room_id, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert room_id == 30
+    assert event == "nsf_counter_tick"
+    assert payload["type"] == "nsf_counter_tick"
+    assert payload["action_id"] == 104
+    assert payload["remaining_time"] == 3
+    assert payload["elapsed_time"] == 2
+    assert "timestamp" in payload
+
+
+@pytest.mark.asyncio
+async def test_notificar_nsf_played(service, mock_ws_manager):
+    """Test notificar que un jugador jugó NSF (NSF_PLAYED)"""
+    await service.notificar_nsf_played(
+        room_id=35,
+        action_id=105,
+        nsf_action_id=106,
+        player_id=8,
+        card_id=33
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    room_id, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert room_id == 35
+    assert event == "nsf_played"
+    assert payload["type"] == "nsf_played"
+    assert payload["action_id"] == 105
+    assert payload["nsf_action_id"] == 106
+    assert payload["player_id"] == 8
+    assert payload["card_id"] == 33
+    assert "timestamp" in payload
+
+
+@pytest.mark.asyncio
+async def test_notificar_nsf_counter_complete_cancelled(service, mock_ws_manager):
+    """Test notificar finalización de ventana NSF con resultado CANCELLED"""
+    await service.notificar_nsf_counter_complete(
+        room_id=40,
+        action_id=107,
+        final_result="cancelled"
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    room_id, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert room_id == 40
+    assert event == "nsf_counter_complete"
+    assert payload["type"] == "nsf_counter_complete"
+    assert payload["action_id"] == 107
+    assert payload["final_result"] == "cancelled"
+    assert "timestamp" in payload
+
+
+@pytest.mark.asyncio
+async def test_notificar_nsf_counter_complete_continue(service, mock_ws_manager):
+    """Test notificar finalización de ventana NSF con resultado CONTINUE"""
+    await service.notificar_nsf_counter_complete(
+        room_id=45,
+        action_id=108,
+        final_result="continue"
+    )
+
+    _, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert payload["action_id"] == 108
+    assert payload["final_result"] == "continue"
