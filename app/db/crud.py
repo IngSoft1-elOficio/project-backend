@@ -755,3 +755,35 @@ def get_room_by_game_id(db: Session, game_id: int):
         Room o None si no existe
     """
     return db.query(models.Room).filter(models.Room.id_game == game_id).first()
+
+
+def get_actions_by_filters(
+    db: Session,
+    parent_action_id: int = None,
+    triggered_by_action_id: int = None,
+    action_name: str = None
+):
+    """
+    Obtiene acciones filtradas por parent_action_id, triggered_by_action_id y/o action_name.
+    
+    Args:
+        db: Sesión de base de datos
+        parent_action_id: Filtrar por parent_action_id (opcional)
+        triggered_by_action_id: Filtrar por triggered_by_action_id (opcional)
+        action_name: Filtrar por action_name (opcional)
+    
+    Returns:
+        Lista de ActionsPerTurn que cumplen los filtros
+    """
+    query = db.query(models.ActionsPerTurn)
+    
+    if parent_action_id is not None:
+        query = query.filter(models.ActionsPerTurn.parent_action_id == parent_action_id)
+    
+    if triggered_by_action_id is not None:
+        query = query.filter(models.ActionsPerTurn.triggered_by_action_id == triggered_by_action_id)
+    
+    if action_name is not None:
+        query = query.filter(models.ActionsPerTurn.action_name == action_name)
+    
+    return query.all()

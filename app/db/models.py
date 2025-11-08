@@ -56,6 +56,7 @@ class ActionType(str, enum.Enum):
     DISCARD = "DISCARD"
     DRAW = "DRAW"
     INSTANT = "INSTANT"
+    INTENTION = "INTENTION"
     REVEAL_SECRET = "REVEAL_SECRET"
     HIDE_SECRET = "HIDE_SECRET"
     VOTE = "VOTE"
@@ -110,7 +111,8 @@ class ActionName(str, enum.Enum):
     POINT_YOUR_SUSPICIONS_EFFECT = "Point Your Suspicions Effect"
     
     # Instant cards
-    NOT_SO_FAST = "Not so Fast"
+    INSTANT_START = "Instant Start"
+    INSTANT_PLAY = "Instant Play"
     
     # Devious cards
     BLACKMAILED = "Blackmailed"
@@ -124,6 +126,7 @@ class ActionResult(str, enum.Enum):
     SUCCESS = "SUCCESS"
     CANCELLED = "CANCELLED"
     FAILED = "FAILED"
+    CONTINUE = "CONTINUE"
 
 
 class Direction(str, enum.Enum):
@@ -239,6 +242,7 @@ class ActionsPerTurn(Base):
     turn_id = Column(Integer, ForeignKey("turn.id"))
     player_id = Column(Integer, ForeignKey("player.id"), nullable=False)
     action_time = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    action_time_end = Column(DateTime)
     action_name = Column(String(40))
     action_type = Column(Enum(ActionType))
     result = Column(Enum(ActionResult), default=ActionResult.PENDING)

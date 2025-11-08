@@ -87,6 +87,8 @@ from app.routes import cards_off_the_table
 app.include_router(cards_off_the_table.router)
 from app.routes import add_to_set
 app.include_router(add_to_set.router)
+from app.routes import not_so_fast
+app.include_router(not_so_fast.router)
 
 
 # Aplicación ASGI con Socket.IO
