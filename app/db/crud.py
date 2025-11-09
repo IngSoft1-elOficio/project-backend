@@ -482,20 +482,24 @@ def get_players_not_in_disgrace(db: Session, game_id: int, exclude_player_id: in
 # DETECTIVE ACTION
 # ------------------------------
 
-def get_action_by_id(db: Session, action_id: int):
+def get_action_by_id(db: Session, action_id: int, game_id: int = None):
     """
-    Obtiene una acción por su ID.
+    Obtiene una acción por su ID, opcionalmente filtrada por game_id.
     
     Args:
         db: Sesión de base de datos
         action_id: ID de la acción en ActionsPerTurn
+        game_id: ID del juego (opcional, para validación adicional)
     
     Returns:
         ActionsPerTurn o None si no existe
     """
-    return db.query(models.ActionsPerTurn).filter(
+    query = db.query(models.ActionsPerTurn).filter(
         models.ActionsPerTurn.id == action_id
-    ).first()
+    )
+    if game_id is not None:
+        query = query.filter(models.ActionsPerTurn.id_game == game_id)
+    return query.first()
 
 
 def update_action_result(db: Session, action_id: int, result: models.ActionResult):
@@ -755,3 +759,399 @@ def get_room_by_game_id(db: Session, game_id: int):
         Room o None si no existe
     """
     return db.query(models.Room).filter(models.Room.id_game == game_id).first()
+
+
+def get_actions_by_filters(
+    db: Session,
+    parent_action_id: int = None,
+    triggered_by_action_id: int = None,
+    action_name: str = None
+):
+    """
+    Obtiene acciones filtradas por parent_action_id, triggered_by_action_id y/o action_name.
+    
+    Args:
+        db: Sesión de base de datos
+        parent_action_id: Filtrar por parent_action_id (opcional)
+        triggered_by_action_id: Filtrar por triggered_by_action_id (opcional)
+        action_name: Filtrar por action_name (opcional)
+    
+    Returns:
+        Lista de ActionsPerTurn que cumplen los filtros
+    """
+    query = db.query(models.ActionsPerTurn)
+    
+    if parent_action_id is not None:
+        query = query.filter(models.ActionsPerTurn.parent_action_id == parent_action_id)
+    
+    if triggered_by_action_id is not None:
+        query = query.filter(models.ActionsPerTurn.triggered_by_action_id == triggered_by_action_id)
+    
+    if action_name is not None:
+        query = query.filter(models.ActionsPerTurn.action_name == action_name)
+    
+    return query.all()
+
+
+# ------------------------------
+# NOT SO FAST - PLAY NSF CARD
+# ------------------------------
+
+def get_nsf_start_action(
+    db: Session,
+    triggered_by_action_id: int,
+    game_id: int
+):
+    """
+    Obtiene la acción INSTANT_START asociada a una acción original.
+    
+    Args:
+        db: Sesión de base de datos
+        triggered_by_action_id: ID de la acción original 
+        game_id: ID del juego
+    
+    Returns:
+        ActionsPerTurn o None si no existe
+    """
+    return db.query(models.ActionsPerTurn).filter(
+        models.ActionsPerTurn.triggered_by_action_id == triggered_by_action_id,
+        models.ActionsPerTurn.action_name == models.ActionName.INSTANT_START,
+        models.ActionsPerTurn.id_game == game_id
+    ).order_by(models.ActionsPerTurn.action_time.desc()).first()
+
+
+def move_card_to_discard(db: Session, card_game_id: int, game_id: int):
+    """
+    Mueve una carta al descarte, ajustando posiciones de las demás cartas.
+    
+    Args:
+        db: Sesión de base de datos
+        card_game_id: ID de CardsXGame a mover
+        game_id: ID del juego
+    
+    Returns:
+        CardsXGame actualizada
+    """
+    # Incrementar posición de todas las cartas en el descarte
+    db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.is_in == models.CardState.DISCARD
+    ).update(
+        {models.CardsXGame.position: models.CardsXGame.position + 1},
+        synchronize_session=False
+    )
+    
+    # Mover la carta al descarte en posición 1 (tope)
+    card_entry = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id == card_game_id
+    ).first()
+    
+    if card_entry:
+        card_entry.is_in = models.CardState.DISCARD
+        card_entry.position = 1
+        card_entry.player_id = None
+        card_entry.hidden = False  # El tope del descarte está visible
+        db.commit()
+        db.refresh(card_entry)
+    
+    return card_entry
+
+
+def get_player_name(db: Session, player_id: int):
+    """
+    Obtiene el nombre de un jugador.
+    
+    Args:
+        db: Sesión de base de datos
+        player_id: ID del jugador
+    
+    Returns:
+        Nombre del jugador o None si no existe
+    """
+    player = db.query(models.Player).filter(models.Player.id == player_id).first()
+    return player.name if player else None
+
+
+def create_nsf_play_action(
+    db: Session,
+    game_id: int,
+    turn_id: int,
+    player_id: int,
+    nsf_start_action_id: int,
+    original_action_id: int,
+    card_id: int,
+    action_time_end
+):
+    """
+    Crea una acción INSTANT_PLAY para NSF.
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        turn_id: ID del turno
+        player_id: ID del jugador que juega NSF
+        nsf_start_action_id: ID de la acción NSF (parent)
+        original_action_id: ID de la acción original (trigger)
+        card_id: ID de la carta NSF jugada
+        action_time_end: Datetime de finalización
+    
+    Returns:
+        ActionsPerTurn creada
+    """
+    from datetime import datetime
+    
+    nsf_play_action = models.ActionsPerTurn(
+        id_game=game_id,
+        turn_id=turn_id,
+        player_id=player_id,
+        action_time=datetime.now(),
+        action_time_end=action_time_end,
+        action_name=models.ActionName.INSTANT_PLAY,
+        action_type=models.ActionType.INSTANT,
+        result=models.ActionResult.PENDING,
+        parent_action_id=nsf_start_action_id,
+        triggered_by_action_id=original_action_id,
+        selected_card_id=card_id
+    )
+    
+    db.add(nsf_play_action)
+    db.flush()
+    db.refresh(nsf_play_action)
+    
+    return nsf_play_action
+
+
+def update_action_time_end(db: Session, action_id: int, action_time_end):
+    """
+    Actualiza el action_time_end de una acción.
+    
+    Args:
+        db: Sesión de base de datos
+        action_id: ID de la acción
+        action_time_end: Nuevo datetime de finalización
+    """
+    action = db.query(models.ActionsPerTurn).filter(
+        models.ActionsPerTurn.id == action_id
+    ).first()
+    
+    if action:
+        action.action_time_end = action_time_end
+        db.flush()
+
+
+# ------------------------------
+# NOT SO FAST - CANCEL ENDPOINT
+# ------------------------------
+
+def get_card_xgame_by_id(db: Session, cards_xgame_id: int):
+    """
+    Obtiene una carta específica de CardsXGame por su ID.
+    
+    Args:
+        db: Sesión de base de datos
+        cards_xgame_id: ID en CardsXGame.id
+    
+    Returns:
+        CardsXGame o None si no existe
+    """
+    return db.query(models.CardsXGame).filter(
+        models.CardsXGame.id == cards_xgame_id
+    ).first()
+
+
+def increment_discard_positions_from(db: Session, game_id: int, from_position: int):
+    """
+    Incrementa en 1 las posiciones de cartas en DISCARD >= from_position.
+    
+    Útil para insertar una carta en medio del descarte (debajo de las NSF).
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        from_position: Posición desde donde incrementar (inclusive)
+    
+    Ejemplo:
+        Discard actual: [1:NSF1, 2:NSF2, 3:OldCard, 4:OldCard2]
+        increment_discard_positions_from(game_id, 3)
+        Resultado:      [1:NSF1, 2:NSF2, 4:OldCard, 5:OldCard2]
+        → Ahora podemos insertar la carta de acción en position 3
+    """
+    db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.is_in == models.CardState.DISCARD,
+        models.CardsXGame.position >= from_position
+    ).update(
+        {models.CardsXGame.position: models.CardsXGame.position + 1},
+        synchronize_session=False
+    )
+    db.flush()
+
+
+def update_single_card_state(
+    db: Session,
+    card_xgame_id: int,
+    new_state: str,
+    new_position: int,
+    player_id: int | None,
+    hidden: bool = False
+):
+    """
+    Actualiza el estado de UNA sola carta.
+    
+    Similar a update_cards_state pero para una sola carta.
+    
+    Args:
+        db: Sesión de base de datos
+        card_xgame_id: ID de la carta en CardsXGame
+        new_state: Nuevo CardState (HAND, DETECTIVE_SET, DISCARD, etc)
+        new_position: Nueva posición
+        player_id: Nuevo dueño (None si no pertenece a nadie)
+        hidden: Visibilidad
+    
+    Returns:
+        CardsXGame actualizada o None si no existe
+    """
+    card = get_card_xgame_by_id(db, card_xgame_id)
+    
+    if card:
+        card.is_in = new_state
+        card.position = new_position
+        card.player_id = player_id
+        card.hidden = hidden
+        db.flush()
+    
+    return card
+
+
+def get_detective_set_cards_by_position(
+    db: Session,
+    game_id: int,
+    player_id: int,
+    position: int
+):
+    """
+    Obtiene todas las cartas de un set de detectives específico.
+    
+    Un set de detectives se identifica por:
+    - Mismo game_id
+    - Mismo player_id (dueño del set)
+    - Mismo position
+    - is_in = DETECTIVE_SET
+    
+    Args:
+        db: Sesión de base de datos
+        game_id: ID del juego
+        player_id: Dueño del set
+        position: Posición del set
+    
+    Returns:
+        Lista de CardsXGame del set (vacía si no existe)
+    """
+    return db.query(models.CardsXGame).filter(
+        models.CardsXGame.id_game == game_id,
+        models.CardsXGame.player_id == player_id,
+        models.CardsXGame.is_in == models.CardState.DETECTIVE_SET,
+        models.CardsXGame.position == position
+    ).all()
+
+
+def check_set_contains_card(db: Session, card_ids: list, target_card_id: int) -> bool:
+    """
+    Verifica si un set de cartas contiene al menos una carta específica.
+    
+    Útil para detectar Eileen Brent en un set.
+    
+    Args:
+        db: Sesión de base de datos
+        card_ids: Lista de CardsXGame.id
+        target_card_id: ID de la carta a buscar (Card.id, ej: 9 para Eileen Brent)
+    
+    Returns:
+        True si al menos una carta tiene id_card == target_card_id
+    """
+    cards = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id.in_(card_ids)
+    ).all()
+    
+    for card in cards:
+        if card.id_card == target_card_id:
+            return True
+    
+    return False
+
+
+def get_player_name(db: Session, player_id: int) -> str:
+    """
+    Obtiene el nombre de un jugador.
+    
+    Args:
+        db: Sesión de base de datos
+        player_id: ID del jugador
+    
+    Returns:
+        Nombre del jugador o "Unknown Player" si no existe
+    """
+    player = db.query(models.Player).filter(models.Player.id == player_id).first()
+    return player.name if player else "Unknown Player"
+
+
+def get_card_name(db: Session, card_id: int) -> str:
+    """
+    Obtiene el nombre de una carta (desde tabla Card).
+    
+    Args:
+        db: Sesión de base de datos
+        card_id: ID de la carta (Card.id, no CardsXGame.id)
+    
+    Returns:
+        Nombre de la carta o "Unknown Card" si no existe
+    """
+    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    return card.name if card else "Unknown Card"
+
+
+def get_detective_set_name(db: Session, card_ids: list) -> str:
+    """
+    Obtiene el nombre de un set de detective.
+    
+    Algoritmo:
+    - Filtra las cartas del set que sean type=DETECTIVE
+    - Busca la primera que NO sea Harley Quinn (comodín)
+    - Si es Tommy Beresford o Tuppence Beresford, retorna "Hermanos Beresford"
+    - Sino, retorna el nombre de la carta detective
+    
+    Args:
+        db: Sesión de base de datos
+        card_ids: Lista de CardsXGame.id del set
+    
+    Returns:
+        Nombre del detective del set o "Unknown Detective" si no se encuentra
+    """
+    HARLEY_QUINN_CARD_ID = 4
+    TOMMY_BERESFORD_CARD_ID = 8
+    TUPPENCE_BERESFORD_CARD_ID = 10
+    
+    # Obtener las cartas del set
+    cards = db.query(models.CardsXGame).filter(
+        models.CardsXGame.id.in_(card_ids)
+    ).all()
+    
+    # Obtener los id_card únicos
+    id_cards = [card.id_card for card in cards]
+    
+    # Consultar las cartas reales (tabla Card)
+    real_cards = db.query(models.Card).filter(
+        models.Card.id.in_(id_cards),
+        models.Card.type == models.CardType.DETECTIVE
+    ).all()
+    
+    # Buscar la primera carta que no sea Harley Quinn
+    for card in real_cards:
+        if card.id != HARLEY_QUINN_CARD_ID:
+            # Caso especial: Hermanos Beresford
+            if card.id in [TOMMY_BERESFORD_CARD_ID, TUPPENCE_BERESFORD_CARD_ID]:
+                return "Hermanos Beresford"
+            else:
+                return card.name
+    
+    return "Unknown Detective"
