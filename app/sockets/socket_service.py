@@ -476,6 +476,236 @@ class WebSocketService:
         await self.ws_manager.emit_to_room(room_id, "social_disgrace_update", mensaje)
         logger.info(f"📡 Emitted social_disgrace_update to room {room_id}: {message}")
 
+    # ==================
+    # | NOT SO FAST    |
+    # ==================
+    
+    async def notificar_valid_action(
+        self,
+        room_id: int,
+        action_id: int,
+        player_id: int,
+        action_type: str,
+        action_name: str,
+        cancellable: bool
+    ):
+        """
+        Notifica que una acción es válida y está en proceso.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción (intención)
+            player_id: ID del jugador que inicia la acción
+            action_type: Tipo de acción (EVENT_CARD, DETECTIVE_SET, etc)
+            action_name: Nombre de la acción
+            cancellable: Si la acción puede ser contrarrestada con NSF
+        """
+        mensaje = {
+            "type": "valid_action",
+            "action_id": action_id,
+            "player_id": player_id,
+            "action_type": action_type,
+            "action_name": action_name,
+            "cancellable": cancellable,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "valid_action", mensaje)
+        logger.info(
+            f"✅ Emitted valid_action to room {room_id}: "
+            f"Player {player_id} - {action_name} (cancellable={cancellable})"
+        )
+    
+    async def notificar_nsf_counter_start(
+        self,
+        room_id: int,
+        action_id: int,
+        nsf_action_id: int,
+        player_id: int,
+        action_type: str,
+        action_name: str,
+        time_remaining: int
+    ):
+        """
+        Notifica el inicio de la ventana NSF.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción original (intención)
+            nsf_action_id: ID de la acción NSF
+            player_id: ID del jugador que inició la acción
+            action_type: Tipo de acción
+            action_name: Nombre de la acción
+            time_remaining: Tiempo en segundos de la ventana NSF
+        """
+        mensaje = {
+            "type": "nsf_counter_start",
+            "action_id": action_id,
+            "nsf_action_id": nsf_action_id,
+            "player_id": player_id,
+            "action_type": action_type,
+            "action_name": action_name,
+            "time_remaining": time_remaining,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "nsf_counter_start", mensaje)
+        logger.info(
+            f"⏱️  Emitted nsf_counter_start to room {room_id}: "
+            f"Action {action_id} - {time_remaining}s window"
+        )
+    
+    async def notificar_nsf_counter_tick(
+        self,
+        room_id: int,
+        action_id: int,
+        remaining_time: float,
+        elapsed_time: float
+    ):
+        """
+        Notifica actualización del timer NSF (cada segundo).
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción NSF
+            remaining_time: Segundos restantes
+            elapsed_time: Segundos transcurridos
+        """
+        mensaje = {
+            "type": "nsf_counter_tick",
+            "action_id": action_id,
+            "remaining_time": remaining_time,
+            "elapsed_time": elapsed_time,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "nsf_counter_tick", mensaje)
+        # Log temporal para debugging
+        logger.info(
+            f"⏱️  Emitted nsf_counter_tick to room {room_id}: "
+            f"Action {action_id} - {remaining_time}s remaining, {elapsed_time}s elapsed"
+        )
+    
+    async def notificar_nsf_played(
+        self,
+        room_id: int,
+        action_id: int,
+        nsf_action_id: int,
+        player_id: int,
+        card_id: int,
+        player_name: str
+    ):
+        """
+        Notifica que un jugador jugó una carta NSF.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción NSF principal (YYY)
+            nsf_action_id: ID de esta jugada NSF específica (ZZZ)
+            player_id: ID del jugador que jugó NSF
+            card_id: ID de la carta NSF jugada (cardsXgame.id)
+            player_name: Nombre del jugador para el mensaje
+        """
+        mensaje = {
+            "type": "nsf_played",
+            "action_id": action_id,
+            "nsf_action_id": nsf_action_id,
+            "player_id": player_id,
+            "card_id": card_id,
+            "message": f"Player {player_name} jugó Not So Fast",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "nsf_played", mensaje)
+        logger.info(
+            f"🛡️  Emitted nsf_played to room {room_id}: "
+            f"Player {player_name} (ID: {player_id}) played NSF"
+        )
+    
+    async def notificar_nsf_counter_complete(
+        self,
+        room_id: int,
+        action_id: int,
+        final_result: str,
+        message: str
+    ):
+        """
+        Notifica el fin de la ventana NSF con el resultado final.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción original
+            final_result: Resultado final ("cancelled" o "continue")
+            message: Mensaje descriptivo del resultado
+        """
+        mensaje = {
+            "type": "nsf_counter_complete",
+            "action_id": action_id,
+            "final_result": final_result,
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "nsf_counter_complete", mensaje)
+        logger.info(
+            f"🏁 Emitted nsf_counter_complete to room {room_id}: "
+            f"Action {action_id} result={final_result} - {message}"
+        )
+    
+    async def notificar_accion_cancelada_ejecutada(
+        self,
+        room_id: int,
+        action_id: int,
+        player_id: int,
+        message: str
+    ):
+        """
+        Notifica que una acción cancelada fue ejecutada sin efectos.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción original (XXX)
+            player_id: ID del jugador que ejecutó la acción
+            message: Mensaje descriptivo de lo que ocurrió
+        """
+        mensaje = {
+            "type": "cancelled_action_executed",
+            "action_id": action_id,
+            "player_id": player_id,
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "cancelled_action_executed", mensaje)
+        logger.info(
+            f"🚫 Emitted cancelled_action_executed to room {room_id}: "
+            f"Action {action_id} - {message}"
+        )
+
+_websocket_service = None
+
+def get_websocket_service() -> WebSocketService:
+    global _websocket_service
+    if _websocket_service is None:
+        _websocket_service = WebSocketService()
+    return _websocket_service
+
+_websocket_service = None
+
+def get_websocket_service() -> WebSocketService:
+    global _websocket_service
+    if _websocket_service is None:
+        _websocket_service = WebSocketService()
+    return _websocket_service
+
+_websocket_service = None
+
+def get_websocket_service() -> WebSocketService:
+    global _websocket_service
+    if _websocket_service is None:
+        _websocket_service = WebSocketService()
+    return _websocket_service
+
 _websocket_service = None
 
 def get_websocket_service() -> WebSocketService:

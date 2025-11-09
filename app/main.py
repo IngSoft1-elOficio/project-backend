@@ -6,10 +6,10 @@ import socketio
 import logging
 
 # Configurar logging para debugging (comentado en producción)
-# logging.basicConfig(
-#     level=logging.INFO,
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-# )
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 # Inicializar FastAPI
 app = FastAPI(
@@ -33,8 +33,8 @@ app.add_middleware(
 sio = socketio.AsyncServer(
     async_mode="asgi",
     cors_allowed_origins="*",
-    logger=False,           # Logs de Socket.IO (cambiar a True para debugging)
-    engineio_logger=False   # Logs de Engine.IO (cambiar a True para debugging)
+    logger=True,           # Logs de Socket.IO (cambiar a True para debugging)
+    engineio_logger=True   # Logs de Engine.IO (cambiar a True para debugging)
 )
 
 # Inicializar manager global
@@ -87,6 +87,8 @@ from app.routes import cards_off_the_table
 app.include_router(cards_off_the_table.router)
 from app.routes import add_to_set
 app.include_router(add_to_set.router)
+from app.routes import not_so_fast
+app.include_router(not_so_fast.router)
 
 
 # Aplicación ASGI con Socket.IO
