@@ -15,10 +15,9 @@ from ..schemas.detective_action_schema import (
 from ..schemas.detective_set_schema import SetType, NextAction, NextActionType, NextActionMetadata, SecretInfo
 from ..services.game_service import win_for_reveal
 from ..services.social_disgrace_service import (
-    update_social_disgrace_status_no_commit,
-    notify_social_disgrace_change
+    check_and_notify_social_disgrace
 )
-
+from app.db.database import SessionLocal
 logger = logging.getLogger(__name__)
 
 class DetectiveActionService:
@@ -118,12 +117,10 @@ class DetectiveActionService:
         self.db.commit()
         print(f"🔥 COMMIT HECHO - game_id: {game_id}, target_player_id: {target_player_id}")
 
-        change_info = update_social_disgrace_status_no_commit(self.db, game_id, target_player_id)
-        print(f"🔥 change_info: {change_info}")
-        if change_info:
-            print(f"🔥 LLAMANDO notify_social_disgrace_change")
-            await notify_social_disgrace_change(game_id, change_info)
-            print(f"🔥 notify_social_disgrace_change COMPLETADO")
+        await check_and_notify_social_disgrace(
+            game_id=game_id,
+            player_id=target_player_id
+        )
         
         return DetectiveActionResponse(
             success=True,
@@ -258,9 +255,10 @@ class DetectiveActionService:
         crud.update_action_result(self.db, action.id, ActionResult.SUCCESS)
         self.db.commit()
 
-        change_info = update_social_disgrace_status_no_commit(self.db, game_id, target_player_id)
-        if change_info:
-            await notify_social_disgrace_change(game_id, change_info)
+        await check_and_notify_social_disgrace(
+            game_id=game_id,
+            player_id=target_player_id
+        )
         
         return DetectiveActionResponse(
             success=True,

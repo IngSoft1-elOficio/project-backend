@@ -55,6 +55,9 @@ def _handle_social_disgrace_check(target: CardsXGame):
     IMPORTANTE: Esta función ahora crea su PROPIA sesión de DB para evitar
     conflictos de 'Session is already flushing' con el listener de SQLAlchemy.
     """
+    logger.warning("DEBUG: 'events.py' listener DESHABILITADO. La lógica manual en el servicio se encargará.")
+    return
+    
     # Saltar si los eventos están deshabilitados (ej: durante tests)
     if not _events_enabled():
         return

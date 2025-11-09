@@ -7,6 +7,7 @@ import asyncio
 from app.db import crud
 import logging
 from typing import List, Dict, Optional
+from ..db.database import SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -262,3 +263,39 @@ async def notify_social_disgrace_change(
         if 'db' in locals() and db.is_active:
              logger.warning("DEBUG: 8. Cerrando sesión final.")
              db.close()
+
+
+async def check_and_notify_social_disgrace(game_id: int, player_id: int):
+    """
+    CREA UNA SESIÓN NUEVA, comprueba el estado de un jugador,
+    y notifica si hay cambios.
+    Esta es la forma SEGURA de llamarlo desde un endpoint
+    después de un commit, ya que evita datos "rancios" (stale data).
+    """
+    logger.warning(f"DEBUG (check_and_notify): Iniciando chequeo para player {player_id} en game {game_id} (SESIÓN NUEVA)")
+    db = SessionLocal()  # <-- Crea una sesión limpia
+    try:
+        # Usamos la función CON commit
+        change_info = update_social_disgrace_status(
+            db=db,
+            game_id=game_id,
+            player_id=player_id
+        )
+        
+        logger.warning(f"DEBUG (check_and_notify): 'update_social_disgrace_status' (sesión limpia) devolvió: {change_info}")
+
+        # Si hubo un cambio, notificar
+        if change_info:
+            logger.warning(f"DEBUG (check_and_notify): Hubo cambio, llamando a notify...")
+            # Esta función (notify...) también crea su propia sesión, lo cual es seguro
+            await notify_social_disgrace_change(
+                game_id=game_id,
+                change_info=change_info
+            )
+        else:
+            logger.warning(f"DEBUG (check_and_notify): No hubo cambios.")
+
+    except Exception as e:
+        logger.error(f"Error en check_and_notify_social_disgrace: {e}", exc_info=True)
+    finally:
+        db.close() # <-- Cierra la sesión limpia
