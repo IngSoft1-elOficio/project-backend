@@ -3,6 +3,7 @@ Servicio para manejar la lógica de desgracia social.
 Un jugador entra en desgracia social cuando todos sus secretos están revelados.
 """
 from sqlalchemy.orm import Session
+import asyncio
 from app.db import crud
 import logging
 from typing import List, Dict, Optional
@@ -58,25 +59,7 @@ def update_social_disgrace_status_no_commit(
     """
     Actualiza el estado de desgracia social de un jugador SIN hacer commit.
     
-    Esta función es usada por los event listeners que ejecutan dentro de una
-    transacción activa. El commit debe ser manejado por quien inició la transacción.
-    
-    - Si debe estar en desgracia y no está registrado: lo agrega
-    - Si no debe estar en desgracia y está registrado: lo elimina
-    
-    Args:
-        db: Sesión de base de datos
-        game_id: ID del juego
-        player_id: ID del jugador
-        
-    Returns:
-        Dict con información del cambio si hubo alguno, None si no hubo cambios
-        {
-            "action": "entered" | "exited",
-            "player_id": int,
-            "player_name": str,
-            "game_id": int
-        }
+    ... (la descripción sigue igual) ...
     """
     try:
         should_be_in_disgrace = check_player_social_disgrace_status(db, game_id, player_id)
@@ -84,6 +67,14 @@ def update_social_disgrace_status_no_commit(
         
         player = crud.get_player_by_id(db, player_id)
         player_name = player.name if player else f"Player {player_id}"
+        
+        # --- INICIO DE LA MODIFICACIÓN ---
+        # Obtenemos el avatar_src y ponemos uno por defecto si no existe
+        avatar_src = "./avatar1.jpg" # Avatar por defecto si 'player' es None o no tiene 'avatar_src'
+        if player and hasattr(player, 'avatar_src') and player.avatar_src:
+            avatar_src = player.avatar_src
+        # --- FIN DE LA MODIFICACIÓN ---
+            
         
         # Caso 1: Debe estar en desgracia pero no está registrado -> AGREGAR
         if should_be_in_disgrace and not is_in_disgrace:
@@ -96,6 +87,7 @@ def update_social_disgrace_status_no_commit(
                 "action": "entered",
                 "player_id": player_id,
                 "player_name": player_name,
+                "avatar_src": avatar_src, # <-- AÑADIDO
                 "game_id": game_id
             }
         
@@ -110,6 +102,7 @@ def update_social_disgrace_status_no_commit(
                 "action": "exited",
                 "player_id": player_id,
                 "player_name": player_name,
+                "avatar_src": avatar_src, # <-- AÑADIDO
                 "game_id": game_id
             }
         
@@ -211,36 +204,61 @@ async def notify_social_disgrace_change(
 ):
     """
     Emite una notificación por WebSocket sobre cambios en desgracia social.
-    
-    Args:
-        game_id: ID del juego
-        change_info: Información del cambio (resultado de update_social_disgrace_status)
     """
+    logger.warning(f"DEBUG: 5. ¡'notify_social_disgrace_change' FUE LLAMADO para game_id {game_id}!")
+    
     from app.sockets.socket_service import get_websocket_service
     from app.db.database import SessionLocal
     
+    db = SessionLocal() # Abrimos sesión UNA SOLA VEZ
+    local_room_id = None # <-- Variable local para el ID
+    
     try:
-        db = SessionLocal()
-        
+        # 1. Obtenemos el room y guardamos su ID en una variable simple
         room = crud.get_room_by_game_id(db, game_id)
         if not room:
-            logger.error(f"No room found for game {game_id}")
+            logger.error(f"DEBUG: 5a. NO SE ENCONTRÓ ROOM para game {game_id}")
             return
         
-        # Obtener lista actualizada de jugadores en desgracia social
+        local_room_id = room.id # <-- ¡SOLUCIÓN AL CRASH!
+        logger.warning(f"DEBUG: 5b. Room ID {local_room_id} obtenido.")
+
+        # --- ARREGLO PARA ISOLATION ---
+        
+        # 2. Sincronizamos la sesión
+        db.commit() 
+        logger.warning("DEBUG: 6a. (Nueva Sesión) Commit inicial hecho para sincronizar.")
+        
+        # 3. Consultamos la lista
         players_in_disgrace = get_players_in_social_disgrace(db, game_id)
         
-        # Usar WebSocketService centralizado
+        # 4. Si sigue vacía, re-intentamos (esto es por el race condition)
+        if not players_in_disgrace and change_info and change_info.get("action") == "entered":
+            logger.warning(f"DEBUG: 6b. AÚN vacía. (Race Condition). Esperando 200ms y re-sincronizando...")
+            await asyncio.sleep(0.2)
+            db.commit() # Re-sincronizamos
+            players_in_disgrace = get_players_in_social_disgrace(db, game_id)
+            logger.warning(f"DEBUG: 6c. Segunda consulta (post-sleep) devolvió: {players_in_disgrace}")
+        
+        # --- FIN DEL ARREGLO ---
+        
         ws_service = get_websocket_service()
+        
+        # 5. Usamos la variable local 'local_room_id'
+        logger.warning(f"DEBUG: 6. Emitiendo 'social_disgrace_update' a room_id {local_room_id}...")
+        
         await ws_service.notificar_social_disgrace_update(
-            room_id=room.id,
+            room_id=local_room_id, # <-- USAMOS LA VARIABLE LOCAL
             game_id=game_id,
-            players_in_disgrace=players_in_disgrace,
+            players_in_disgrace=players_in_disgrace, 
             change_info=change_info
         )
         
+        logger.warning("DEBUG: 7. EMISIÓN COMPLETA.")
+        
     except Exception as e:
-        logger.error(f"Error notifying social disgrace change: {e}")
+        logger.error(f"Error notifying social disgrace change: {e}", exc_info=True)
     finally:
-        if 'db' in locals():
-            db.close()
+        if 'db' in locals() and db.is_active:
+             logger.warning("DEBUG: 8. Cerrando sesión final.")
+             db.close()

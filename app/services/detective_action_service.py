@@ -14,6 +14,10 @@ from ..schemas.detective_action_schema import (
 )
 from ..schemas.detective_set_schema import SetType, NextAction, NextActionType, NextActionMetadata, SecretInfo
 from ..services.game_service import win_for_reveal
+from ..services.social_disgrace_service import (
+    update_social_disgrace_status_no_commit,
+    notify_social_disgrace_change
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +91,7 @@ class DetectiveActionService:
         owner_id: int,
         room_id: int
     ) -> DetectiveActionResponse:
+        print("\n🔥🔥🔥 _handle_single_step_action INICIADO")
         """Maneja detectives de 1 paso (Marple, Poirot, Pyne)"""
         self._validate_executor(request.executorId, owner_id, set_type, request.targetPlayerId)
         
@@ -111,6 +116,14 @@ class DetectiveActionService:
         
         crud.update_action_result(self.db, action.id, ActionResult.SUCCESS)
         self.db.commit()
+        print(f"🔥 COMMIT HECHO - game_id: {game_id}, target_player_id: {target_player_id}")
+
+        change_info = update_social_disgrace_status_no_commit(self.db, game_id, target_player_id)
+        print(f"🔥 change_info: {change_info}")
+        if change_info:
+            print(f"🔥 LLAMANDO notify_social_disgrace_change")
+            await notify_social_disgrace_change(game_id, change_info)
+            print(f"🔥 notify_social_disgrace_change COMPLETADO")
         
         return DetectiveActionResponse(
             success=True,
@@ -244,6 +257,10 @@ class DetectiveActionService:
         # Marcar la acción como completada
         crud.update_action_result(self.db, action.id, ActionResult.SUCCESS)
         self.db.commit()
+
+        change_info = update_social_disgrace_status_no_commit(self.db, game_id, target_player_id)
+        if change_info:
+            await notify_social_disgrace_change(game_id, change_info)
         
         return DetectiveActionResponse(
             success=True,
