@@ -225,10 +225,10 @@ class WebSocketService:
             "message": f"{requester_name} quiere intercambiar una carta contigo"
         }
         
-        await self.sio.emit(
-            "card_trade_select_own_card",
-            event_data,
-            room=f"room_{room_id}"
+        await self.ws_manager.emit_to_room(
+            room_id, 
+            "card_trade_select_own_card", 
+            event_data
         )
         
         logger.info(
@@ -266,17 +266,17 @@ class WebSocketService:
             "timestamp": datetime.now().isoformat()
         }
         
-        await self.sio.emit(
-            "card_trade_complete",
-            event_data,
-            room=f"room_{room_id}"
+        await self.ws_manager.emit_to_room(
+            room_id, 
+            "card_trade_complete", 
+            event_data
         )
         
         logger.info(
             f"[WS] card_trade_complete emitido a room {room_id}. "
             f"P1: {player1_id}, P2: {player2_id}"
         )
-        
+            
     
     async def notificar_detective_target_selected(
         self,
