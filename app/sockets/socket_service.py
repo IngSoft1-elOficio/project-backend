@@ -199,6 +199,85 @@ class WebSocketService:
         await self.ws_manager.emit_to_room(room_id, "detective_action_started", mensaje)
         logger.info(f"✅ Emitted detective_action_started to room {room_id}")
     
+    async def notificar_card_trade_select_own_card(
+        self,
+        room_id: int,
+        action_id: int,
+        requester_id: int,
+        requester_name: str,
+        target_id: int
+    ):
+        """
+        Notifica a P2 (target) que debe seleccionar su carta para el intercambio.
+        
+        Args:
+            room_id: ID de la sala
+            action_id: ID de la acción de Card Trade
+            requester_id: ID del jugador que inició el trade (P1)
+            requester_name: Nombre del jugador que inició el trade
+            target_id: ID del jugador que debe seleccionar (P2)
+        """
+        event_data = {
+            "action_id": action_id,
+            "requester_id": requester_id,
+            "requester_name": requester_name,
+            "target_id": target_id,
+            "message": f"{requester_name} quiere intercambiar una carta contigo"
+        }
+        
+        await self.ws_manager.emit_to_room(
+            room_id, 
+            "card_trade_select_own_card", 
+            event_data
+        )
+        
+        logger.info(
+            f"[WS] card_trade_select_own_card emitido a room {room_id}. "
+            f"Target: {target_id}, Requester: {requester_id}, Action: {action_id}"
+        )
+
+
+    async def notificar_card_trade_complete(
+        self,
+        room_id: int,
+        player1_id: int,
+        player1_name: str,
+        player2_id: int,
+        player2_name: str,
+        message: str
+    ):
+        """
+        Notifica a todos los jugadores que el Card Trade se completó exitosamente.
+        
+        Args:
+            room_id: ID de la sala
+            player1_id: ID del jugador que inició el trade
+            player1_name: Nombre del jugador que inició el trade
+            player2_id: ID del jugador objetivo
+            player2_name: Nombre del jugador objetivo
+            message: Mensaje descriptivo del intercambio
+        """
+        event_data = {
+            "player1_id": player1_id,
+            "player1_name": player1_name,
+            "player2_id": player2_id,
+            "player2_name": player2_name,
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(
+            room_id, 
+            "card_trade_complete", 
+            event_data
+        )
+        
+        logger.info(
+            f"[WS] card_trade_complete emitido a room {room_id}. "
+            f"P1: {player1_id}, P2: {player2_id}"
+        )
+            
+    
     async def notificar_detective_target_selected(
         self,
         room_id: int,
@@ -333,6 +412,78 @@ class WebSocketService:
         }
         await self.ws_manager.emit_to_room(room_id, "event_action_complete", mensaje)
         logger.info(f"✅ Emitted event_action_complete to room {room_id}")
+
+    # ---------------------
+    # | DEAD CARD FOLLY   |
+    # ---------------------
+    
+    async def notificar_dead_card_folly_select_card(
+        self,
+        room_id: int,
+        action_id: int,
+        direction: str,
+        player_id: int,
+        player_name: str
+    ):
+        """
+        Notifica a todos los jugadores que deben seleccionar una carta para intercambiar.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción padre (EVENT_CARD)
+            direction: Dirección del intercambio ("LEFT" o "RIGHT")
+            player_id: ID del jugador que jugó Dead Card Folly
+            player_name: Nombre del jugador que jugó la carta
+        """
+        # Traducir dirección
+        direccion_es = "izquierda" if direction == "LEFT" else "derecha"
+        
+        mensaje = {
+            "type": "dead_card_folly_select_card",
+            "action_id": action_id,
+            "direction": direction,
+            "player_id": player_id,
+            "player_name": player_name,
+            "message": f"Jugador {player_name} jugó Dead Card Folly, todos los jugadores tendrán que seleccionar una carta para pasarle a su jugador de la {direccion_es}",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "dead_card_folly_select_card", mensaje)
+        logger.info(
+            f"🔄 Emitted dead_card_folly_select_card to room {room_id}: "
+            f"Action {action_id}, direction={direction}"
+        )
+    
+    async def notificar_dead_card_folly_complete(
+        self,
+        room_id: int,
+        action_id: int,
+        direction: str,
+        players_count: int
+    ):
+        """
+        Notifica a todos los jugadores que el intercambio se completó.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción padre (EVENT_CARD)
+            direction: Dirección del intercambio ("LEFT" o "RIGHT")
+            players_count: Número de jugadores que participaron
+        """
+        mensaje = {
+            "type": "dead_card_folly_complete",
+            "action_id": action_id,
+            "direction": direction,
+            "players_count": players_count,
+            "message": "Acción de Dead Card Folly terminada",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "dead_card_folly_complete", mensaje)
+        logger.info(
+            f"✅ Emitted dead_card_folly_complete to room {room_id}: "
+            f"Action {action_id}, {players_count} players"
+        )
 
     # ----------------
     # | DISCARD-DRAW |
@@ -474,7 +625,7 @@ class WebSocketService:
         }
         
         await self.ws_manager.emit_to_room(room_id, "social_disgrace_update", mensaje)
-        logger.info(f"📡 Emitted social_disgrace_update to room {room_id}: {message}")
+        print(f"'social_disgrace_update' emitido a room {room_id}")
 
     # ==================
     # | NOT SO FAST    |

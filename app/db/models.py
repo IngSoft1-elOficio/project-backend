@@ -49,6 +49,11 @@ class TurnStatus(str, enum.Enum):
     FINISHED = "FINISHED"
 
 
+class Direction(str, enum.Enum):
+    LEFT = "LEFT"
+    RIGHT = "RIGHT"
+
+
 class ActionType(str, enum.Enum):
     EVENT_CARD = "EVENT_CARD"
     DETECTIVE_SET = "DETECTIVE_SET"

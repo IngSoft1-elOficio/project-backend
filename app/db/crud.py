@@ -1155,3 +1155,118 @@ def get_detective_set_name(db: Session, card_ids: list) -> str:
                 return card.name
     
     return "Unknown Detective"
+
+
+# ------------------------------
+# DEAD CARD FOLLY
+# ------------------------------
+
+def get_player_neighbor_by_direction(db: Session, player_id: int, room_id: int, direction: models.Direction):
+    """
+    Obtiene el jugador vecino según la dirección especificada.
+    
+    Para direction=LEFT: busca el jugador con order anterior (descendente)
+    Para direction=RIGHT: busca el jugador con order siguiente (ascendente)
+    Usa módulo para wraparound (circular).
+    
+    
+    Args:
+        db: Sesión de base de datos
+        player_id: ID del jugador actual
+        room_id: ID del room
+        direction: Direction.LEFT o Direction.RIGHT
+    
+    Returns:
+        Player vecino o None si no se encuentra
+    
+    Ejemplo:
+        Players: [order=1, order=2, order=3, order=4]
+        Player actual: order=3
+        - LEFT: retorna player con order=2
+        - RIGHT: retorna player con order=4
+        
+        Edge case (wraparound):
+        Player actual: order=1
+        - LEFT: retorna player con order=4 (último)
+        
+        Player actual: order=4
+        - RIGHT: retorna player con order=1 (primero)
+    """
+    # Obtener el jugador actual
+    current_player = db.query(models.Player).filter(
+        models.Player.id == player_id,
+        models.Player.id_room == room_id
+    ).first()
+    
+    if not current_player:
+        return None
+    
+    # Obtener todos los jugadores del room ordenados por order
+    all_players = db.query(models.Player).filter(
+        models.Player.id_room == room_id
+    ).order_by(models.Player.order).all()
+    
+    if len(all_players) <= 1:
+        return None  # No hay vecinos si solo hay 1 jugador
+    
+    # Encontrar el índice del jugador actual en la lista
+    current_index = None
+    for idx, player in enumerate(all_players):
+        if player.id == player_id:
+            current_index = idx
+            break
+    
+    if current_index is None:
+        return None
+    
+    # Calcular el índice del vecino según dirección
+    total_players = len(all_players)
+    
+    if direction == models.Direction.LEFT:
+        # LEFT = orden descendente (player anterior)
+        neighbor_index = (current_index - 1) % total_players
+    else:  # Direction.RIGHT
+        # RIGHT = orden ascendente (player siguiente)
+        neighbor_index = (current_index + 1) % total_players
+    
+    return all_players[neighbor_index]
+
+
+def swap_cards_between_players(db: Session, card_give_id: int, card_receive_id: int):
+    """
+    Intercambia los id_card entre dos registros de CardsXGame.
+    Preserva las posiciones y todos los demás atributos.
+    
+    Esto permite rotar cartas entre jugadores manteniendo sus posiciones en mano.
+    
+    Args:
+        db: Sesión de base de datos
+        card_give_id: ID de CardsXGame del jugador que da su carta
+        card_receive_id: ID de CardsXGame del jugador que recibe
+    
+    Returns:
+        Tupla (card_give, card_receive) actualizadas
+    
+    Ejemplo:
+        Antes:
+        - card_give: player_id=1, id_card=20, position=2
+        - card_receive: player_id=2, id_card=35, position=1
+        
+        Después:
+        - card_give: player_id=1, id_card=35, position=2 (recibió carta de player 2)
+        - card_receive: player_id=2, id_card=20, position=1 (recibió carta de player 1)
+    """
+    card_give = get_card_xgame_by_id(db, card_give_id)
+    card_receive = get_card_xgame_by_id(db, card_receive_id)
+    
+    if not card_give or not card_receive:
+        return None, None
+    
+    # Intercambiar los id_card
+    temp_id_card = card_give.id_card
+    card_give.id_card = card_receive.id_card
+    card_receive.id_card = temp_id_card
+    
+    db.flush()
+    
+    return card_give, card_receive
