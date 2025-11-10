@@ -117,15 +117,9 @@ def after_update_cards_x_game(mapper, connection, target):
     if not _events_enabled():
         return
     
-    # YA NO INTENTAMOS OBTENER LA SESIÓN AQUÍ
-    # session = Session.object_session(target) <-- ELIMINADO
-    # if session is None: <-- ELIMINADO
-    #     logger.warning("No session available for social disgrace check after update") <-- ELIMINADO
-    #     return <-- ELIMINADO
-    
     logger.warning(f"DEBUG: 1c. 'after_update_cards_x_game' - Llamando a _handle_social_disgrace_check...")
     
-    _handle_social_disgrace_check(target) # <-- CAMBIADO: Ya no pasamos la sesión
+    _handle_social_disgrace_check(target)
 
 
 @event.listens_for(CardsXGame, 'after_insert')
@@ -139,15 +133,9 @@ def after_insert_cards_x_game(mapper, connection, target):
     if not _events_enabled():
         return
     
-    # YA NO INTENTAMOS OBTENER LA SESIÓN AQUÍ
-    # session = Session.object_session(target) <-- ELIMINADO
-    # if session is None: <-- ELIMINADO
-    #     logger.warning("No session available for social disgrace check after insert") <-- ELIMINADO
-    #     return <-- ELIMINADO
-    
     logger.warning(f"🔔 CardsXGame inserted: game={target.id_game}, player={target.player_id}, is_in={target.is_in}, hidden={target.hidden}")
     
-    _handle_social_disgrace_check(target) # <-- CAMBIADO: Ya no pasamos la sesión
+    _handle_social_disgrace_check(target)
 
 
 @event.listens_for(CardsXGame, 'after_delete')
