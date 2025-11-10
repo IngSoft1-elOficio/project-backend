@@ -93,6 +93,8 @@ from app.routes import card_trade
 app.include_router(card_trade.router)
 from app.routes import dead_card_folly
 app.include_router(dead_card_folly.router)
+from app.routes import ariadne_oliver
+app.include_router(ariadne_oliver.router)
 
 
 # Aplicación ASGI con Socket.IO

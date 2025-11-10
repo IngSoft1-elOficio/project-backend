@@ -473,3 +473,57 @@ async def test_notificar_accion_cancelada_ejecutada_add_to_set(service, mock_ws_
     assert payload["player_id"] == 11
     assert "Miss Marple" in payload["message"]
     assert "ampliado pero efecto no realizado" in payload["message"]
+
+
+# ---------------
+# Ariadne Oliver
+# ---------------
+
+@pytest.mark.asyncio
+async def test_notify_detective_oliver_added(service, mock_ws_manager):
+    """Test notificación de Ariadne Oliver agregada a set"""
+    await service.notify_detective_oliver_added(
+        room_id=100,
+        action_id=500,
+        oliver_player_id=5,
+        oliver_player_name="Alice",
+        target_player_id=8,
+        target_player_name="Bob",
+        set_position=1,
+        message="Alice ha agregado Ariadne Oliver al set de Bob en posición 1"
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    _, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert event == "detective_oliver_added"
+    assert payload["type"] == "detective_oliver_added"
+    assert payload["action_id"] == 500
+    assert payload["oliver_player_id"] == 5
+    assert payload["oliver_player_name"] == "Alice"
+    assert payload["target_player_id"] == 8
+    assert payload["target_player_name"] == "Bob"
+    assert payload["set_position"] == 1
+    assert payload["message"] == "Alice ha agregado Ariadne Oliver al set de Bob en posición 1"
+    assert "timestamp" in payload
+
+
+@pytest.mark.asyncio
+async def test_notify_ariadne_oliver_complete(service, mock_ws_manager):
+    """Test notificación de revelación de secreto por Ariadne Oliver"""
+    await service.notify_ariadne_oliver_complete(
+        room_id=100,
+        player_id=10,
+        player_name="Bob",
+        message="Bob ha revelado un secreto debido a Ariadne Oliver"
+    )
+
+    mock_ws_manager.emit_to_room.assert_awaited_once()
+    _, event, payload = mock_ws_manager.emit_to_room.await_args.args
+
+    assert event == "ariadne_oliver_complete"
+    assert payload["type"] == "ariadne_oliver_complete"
+    assert payload["player_id"] == 10
+    assert payload["player_name"] == "Bob"
+    assert payload["message"] == "Bob ha revelado un secreto debido a Ariadne Oliver"
+    assert "timestamp" in payload
