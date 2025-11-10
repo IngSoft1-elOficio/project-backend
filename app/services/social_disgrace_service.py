@@ -265,9 +265,11 @@ async def check_and_notify_social_disgrace(game_id: int, player_id: int):
     después de un commit, ya que evita datos "rancios" (stale data).
     """
     logger.warning(f"DEBUG (check_and_notify): Iniciando chequeo para player {player_id} en game {game_id} (SESIÓN NUEVA)")
-    db = SessionLocal()  # <-- Crea una sesión limpia
+    db = SessionLocal()  # Crea una sesion limpia
     try:
-        # Usamos la función CON commit
+        db.commit()
+        logger.warning("DEBUG (check_and_notify): 'commit' inicial (sync) HECHO.")
+        # Usamos la función con commit
         change_info = update_social_disgrace_status(
             db=db,
             game_id=game_id,
@@ -275,11 +277,20 @@ async def check_and_notify_social_disgrace(game_id: int, player_id: int):
         )
         
         logger.warning(f"DEBUG (check_and_notify): 'update_social_disgrace_status' (sesión limpia) devolvió: {change_info}")
+        db.expire_all()
 
-        # Si hubo un cambio, notificar
+        from ..services.game_service import win_for_total_disgrace
+        game_has_ended = await win_for_total_disgrace(db=db, game_id=game_id)
+        
+        # Si el juego termino, no envia notificacion de "desgracia social",
+        if game_has_ended:
+            logger.warning(f"DEBUG (check_and_notify): Juego terminado por TOTAL_DISGRACE. No se enviará 'social_disgrace_update'.")
+            return
+
+        # Si el juego no termino --> verifica si hay un cambio y notifica
         if change_info:
             logger.warning(f"DEBUG (check_and_notify): Hubo cambio, llamando a notify...")
-            # Esta función (notify...) también crea su propia sesión, lo cual es seguro
+            # Esta función (notify...) también crea su propia sesion
             await notify_social_disgrace_change(
                 game_id=game_id,
                 change_info=change_info
@@ -290,4 +301,4 @@ async def check_and_notify_social_disgrace(game_id: int, player_id: int):
     except Exception as e:
         logger.error(f"Error en check_and_notify_social_disgrace: {e}", exc_info=True)
     finally:
-        db.close() # <-- Cierra la sesión limpia
+        db.close() # Cierra la sesion limpia
