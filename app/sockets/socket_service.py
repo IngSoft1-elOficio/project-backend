@@ -413,6 +413,78 @@ class WebSocketService:
         await self.ws_manager.emit_to_room(room_id, "event_action_complete", mensaje)
         logger.info(f"✅ Emitted event_action_complete to room {room_id}")
 
+    # ---------------------
+    # | DEAD CARD FOLLY   |
+    # ---------------------
+    
+    async def notificar_dead_card_folly_select_card(
+        self,
+        room_id: int,
+        action_id: int,
+        direction: str,
+        player_id: int,
+        player_name: str
+    ):
+        """
+        Notifica a todos los jugadores que deben seleccionar una carta para intercambiar.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción padre (EVENT_CARD)
+            direction: Dirección del intercambio ("LEFT" o "RIGHT")
+            player_id: ID del jugador que jugó Dead Card Folly
+            player_name: Nombre del jugador que jugó la carta
+        """
+        # Traducir dirección
+        direccion_es = "izquierda" if direction == "LEFT" else "derecha"
+        
+        mensaje = {
+            "type": "dead_card_folly_select_card",
+            "action_id": action_id,
+            "direction": direction,
+            "player_id": player_id,
+            "player_name": player_name,
+            "message": f"Jugador {player_name} jugó Dead Card Folly, todos los jugadores tendrán que seleccionar una carta para pasarle a su jugador de la {direccion_es}",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "dead_card_folly_select_card", mensaje)
+        logger.info(
+            f"🔄 Emitted dead_card_folly_select_card to room {room_id}: "
+            f"Action {action_id}, direction={direction}"
+        )
+    
+    async def notificar_dead_card_folly_complete(
+        self,
+        room_id: int,
+        action_id: int,
+        direction: str,
+        players_count: int
+    ):
+        """
+        Notifica a todos los jugadores que el intercambio se completó.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción padre (EVENT_CARD)
+            direction: Dirección del intercambio ("LEFT" o "RIGHT")
+            players_count: Número de jugadores que participaron
+        """
+        mensaje = {
+            "type": "dead_card_folly_complete",
+            "action_id": action_id,
+            "direction": direction,
+            "players_count": players_count,
+            "message": "Acción de Dead Card Folly terminada",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "dead_card_folly_complete", mensaje)
+        logger.info(
+            f"✅ Emitted dead_card_folly_complete to room {room_id}: "
+            f"Action {action_id}, {players_count} players"
+        )
+
     # ----------------
     # | DISCARD-DRAW |
     # ----------------
@@ -553,7 +625,7 @@ class WebSocketService:
         }
         
         await self.ws_manager.emit_to_room(room_id, "social_disgrace_update", mensaje)
-        logger.info(f"📡 Emitted social_disgrace_update to room {room_id}: {message}")
+        print(f"'social_disgrace_update' emitido a room {room_id}")
 
     # ==================
     # | NOT SO FAST    |

@@ -1895,3 +1895,264 @@ def test_get_action_by_id_with_game_id_filter(db):
     result_no_filter = crud.get_action_by_id(db, action_game1.id)
     assert result_no_filter is not None
     assert result_no_filter.id == action_game1.id
+
+
+# ------------------------------
+# TESTS DEAD CARD FOLLY - CRUD
+# ------------------------------
+
+def test_get_player_neighbor_by_direction_left(db):
+    """Test obtener vecino izquierdo (orden descendente)"""
+    # Setup: crear room y 4 jugadores con orders 1, 2, 3, 4
+    room = crud.create_room(db, {"name": "Mesa DCF", "status": "INGAME"})
+    
+    player1 = crud.create_player(db, {
+        "name": "Player 1",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 1, 1),
+        "id_room": room.id,
+        "order": 1
+    })
+    player2 = crud.create_player(db, {
+        "name": "Player 2",
+        "avatar_src": "avatar2.png",
+        "birthdate": date(2000, 2, 2),
+        "id_room": room.id,
+        "order": 2
+    })
+    player3 = crud.create_player(db, {
+        "name": "Player 3",
+        "avatar_src": "avatar3.png",
+        "birthdate": date(2000, 3, 3),
+        "id_room": room.id,
+        "order": 3
+    })
+    player4 = crud.create_player(db, {
+        "name": "Player 4",
+        "avatar_src": "avatar4.png",
+        "birthdate": date(2000, 4, 4),
+        "id_room": room.id,
+        "order": 4
+    })
+    
+    # Test: LEFT desde player 3 debería retornar player 2
+    neighbor = crud.get_player_neighbor_by_direction(db, player3.id, room.id, models.Direction.LEFT)
+    assert neighbor is not None
+    assert neighbor.id == player2.id
+    assert neighbor.order == 2
+    
+    # Test: LEFT desde player 2 debería retornar player 1
+    neighbor = crud.get_player_neighbor_by_direction(db, player2.id, room.id, models.Direction.LEFT)
+    assert neighbor is not None
+    assert neighbor.id == player1.id
+    assert neighbor.order == 1
+    
+    # Test: LEFT desde player 1 debería retornar player 4 (wraparound)
+    neighbor = crud.get_player_neighbor_by_direction(db, player1.id, room.id, models.Direction.LEFT)
+    assert neighbor is not None
+    assert neighbor.id == player4.id
+    assert neighbor.order == 4
+
+
+def test_get_player_neighbor_by_direction_right(db):
+    """Test obtener vecino derecho (orden ascendente)"""
+    # Setup: crear room y 4 jugadores
+    room = crud.create_room(db, {"name": "Mesa DCF", "status": "INGAME"})
+    
+    player1 = crud.create_player(db, {
+        "name": "Player 1",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 1, 1),
+        "id_room": room.id,
+        "order": 1
+    })
+    player2 = crud.create_player(db, {
+        "name": "Player 2",
+        "avatar_src": "avatar2.png",
+        "birthdate": date(2000, 2, 2),
+        "id_room": room.id,
+        "order": 2
+    })
+    player3 = crud.create_player(db, {
+        "name": "Player 3",
+        "avatar_src": "avatar3.png",
+        "birthdate": date(2000, 3, 3),
+        "id_room": room.id,
+        "order": 3
+    })
+    player4 = crud.create_player(db, {
+        "name": "Player 4",
+        "avatar_src": "avatar4.png",
+        "birthdate": date(2000, 4, 4),
+        "id_room": room.id,
+        "order": 4
+    })
+    
+    # Test: RIGHT desde player 1 debería retornar player 2
+    neighbor = crud.get_player_neighbor_by_direction(db, player1.id, room.id, models.Direction.RIGHT)
+    assert neighbor is not None
+    assert neighbor.id == player2.id
+    assert neighbor.order == 2
+    
+    # Test: RIGHT desde player 3 debería retornar player 4
+    neighbor = crud.get_player_neighbor_by_direction(db, player3.id, room.id, models.Direction.RIGHT)
+    assert neighbor is not None
+    assert neighbor.id == player4.id
+    assert neighbor.order == 4
+    
+    # Test: RIGHT desde player 4 debería retornar player 1 (wraparound)
+    neighbor = crud.get_player_neighbor_by_direction(db, player4.id, room.id, models.Direction.RIGHT)
+    assert neighbor is not None
+    assert neighbor.id == player1.id
+    assert neighbor.order == 1
+
+
+def test_get_player_neighbor_by_direction_edge_cases(db):
+    """Test casos edge: jugador inexistente, solo 1 jugador, room vacío"""
+    # Setup: crear room con 1 solo jugador
+    room = crud.create_room(db, {"name": "Mesa Solo", "status": "INGAME"})
+    
+    player1 = crud.create_player(db, {
+        "name": "Solo Player",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 1, 1),
+        "id_room": room.id,
+        "order": 1
+    })
+    
+    # Test: Solo 1 jugador, no hay vecinos
+    neighbor = crud.get_player_neighbor_by_direction(db, player1.id, room.id, models.Direction.LEFT)
+    assert neighbor is None
+    
+    neighbor = crud.get_player_neighbor_by_direction(db, player1.id, room.id, models.Direction.RIGHT)
+    assert neighbor is None
+    
+    # Test: Jugador inexistente
+    neighbor = crud.get_player_neighbor_by_direction(db, 9999, room.id, models.Direction.LEFT)
+    assert neighbor is None
+    
+    # Test: Room inexistente
+    neighbor = crud.get_player_neighbor_by_direction(db, player1.id, 9999, models.Direction.LEFT)
+    assert neighbor is None
+
+
+def test_swap_cards_between_players(db):
+    """Test intercambiar cartas entre dos jugadores"""
+    # Setup: crear game, players, y cartas
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Mesa Swap", "status": "INGAME", "id_game": game.id})
+    
+    player1 = crud.create_player(db, {
+        "name": "Player 1",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 1, 1),
+        "id_room": room.id,
+        "order": 1
+    })
+    player2 = crud.create_player(db, {
+        "name": "Player 2",
+        "avatar_src": "avatar2.png",
+        "birthdate": date(2000, 2, 2),
+        "id_room": room.id,
+        "order": 2
+    })
+    
+    # Crear cartas en base de datos
+    card_a = models.Card(name="Card A", description="desc", type="EVENT", img_src="a.png", qty=1)
+    card_b = models.Card(name="Card B", description="desc", type="EVENT", img_src="b.png", qty=1)
+    db.add_all([card_a, card_b])
+    db.commit()
+    db.refresh(card_a)
+    db.refresh(card_b)
+    
+    # Player 1 tiene Card A en position 2
+    card_xgame_p1 = models.CardsXGame(
+        id_game=game.id,
+        id_card=card_a.id,
+        player_id=player1.id,
+        is_in=models.CardState.HAND,
+        position=2,
+        hidden=False
+    )
+    
+    # Player 2 tiene Card B en position 1
+    card_xgame_p2 = models.CardsXGame(
+        id_game=game.id,
+        id_card=card_b.id,
+        player_id=player2.id,
+        is_in=models.CardState.HAND,
+        position=1,
+        hidden=False
+    )
+    
+    db.add_all([card_xgame_p1, card_xgame_p2])
+    db.commit()
+    db.refresh(card_xgame_p1)
+    db.refresh(card_xgame_p2)
+    
+    # Guardar valores originales
+    original_p1_card = card_xgame_p1.id_card
+    original_p2_card = card_xgame_p2.id_card
+    
+    # Test: hacer swap
+    result_give, result_receive = crud.swap_cards_between_players(db, card_xgame_p1.id, card_xgame_p2.id)
+    db.commit()
+    db.refresh(card_xgame_p1)
+    db.refresh(card_xgame_p2)
+    
+    # Verificar que las cartas se intercambiaron
+    assert card_xgame_p1.id_card == original_p2_card  # Player 1 ahora tiene Card B
+    assert card_xgame_p2.id_card == original_p1_card  # Player 2 ahora tiene Card A
+    
+    # Verificar que positions y player_id NO cambiaron
+    assert card_xgame_p1.player_id == player1.id
+    assert card_xgame_p1.position == 2
+    assert card_xgame_p2.player_id == player2.id
+    assert card_xgame_p2.position == 1
+    
+    # Verificar que is_in y hidden NO cambiaron
+    assert card_xgame_p1.is_in == models.CardState.HAND
+    assert card_xgame_p2.is_in == models.CardState.HAND
+    assert card_xgame_p1.hidden is False
+    assert card_xgame_p2.hidden is False
+
+
+def test_swap_cards_between_players_invalid(db):
+    """Test swap con IDs inválidos"""
+    # Test: IDs inexistentes
+    result_give, result_receive = crud.swap_cards_between_players(db, 9999, 8888)
+    assert result_give is None
+    assert result_receive is None
+    
+    # Setup: crear una carta válida
+    game = crud.create_game(db, {})
+    room = crud.create_room(db, {"name": "Mesa Test", "status": "INGAME", "id_game": game.id})
+    player = crud.create_player(db, {
+        "name": "Player 1",
+        "avatar_src": "avatar1.png",
+        "birthdate": date(2000, 1, 1),
+        "id_room": room.id,
+        "order": 1
+    })
+    
+    card = models.Card(name="Test Card", description="desc", type="EVENT", img_src="test.png", qty=1)
+    db.add(card)
+    db.commit()
+    db.refresh(card)
+    
+    card_xgame = models.CardsXGame(
+        id_game=game.id,
+        id_card=card.id,
+        player_id=player.id,
+        is_in=models.CardState.HAND,
+        position=1,
+        hidden=False
+    )
+    db.add(card_xgame)
+    db.commit()
+    db.refresh(card_xgame)
+    
+    # Test: un ID válido, otro inválido
+    result_give, result_receive = crud.swap_cards_between_players(db, card_xgame.id, 9999)
+    assert result_give is None
+    assert result_receive is None

@@ -91,6 +91,8 @@ from app.routes import not_so_fast
 app.include_router(not_so_fast.router)
 from app.routes import card_trade
 app.include_router(card_trade.router)
+from app.routes import dead_card_folly
+app.include_router(dead_card_folly.router)
 
 
 # Aplicación ASGI con Socket.IO
