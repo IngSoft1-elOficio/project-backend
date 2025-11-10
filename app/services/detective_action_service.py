@@ -14,7 +14,10 @@ from ..schemas.detective_action_schema import (
 )
 from ..schemas.detective_set_schema import SetType, NextAction, NextActionType, NextActionMetadata, SecretInfo
 from ..services.game_service import win_for_reveal
-
+from ..services.social_disgrace_service import (
+    check_and_notify_social_disgrace
+)
+from app.db.database import SessionLocal
 logger = logging.getLogger(__name__)
 
 class DetectiveActionService:
@@ -111,6 +114,11 @@ class DetectiveActionService:
         
         crud.update_action_result(self.db, action.id, ActionResult.SUCCESS)
         self.db.commit()
+
+        await check_and_notify_social_disgrace(
+            game_id=game_id,
+            player_id=target_player_id
+        )
         
         return DetectiveActionResponse(
             success=True,
@@ -244,10 +252,15 @@ class DetectiveActionService:
         # Marcar la acción como completada
         crud.update_action_result(self.db, action.id, ActionResult.SUCCESS)
         self.db.commit()
+
+        await check_and_notify_social_disgrace(
+            game_id=game_id,
+            player_id=target_player_id
+        )
         
         return DetectiveActionResponse(
             success=True,
-            completed=True,  # Acción COMPLETADA
+            completed=True,  # Accion completada
             nextAction=None,
             effects=effects
         )

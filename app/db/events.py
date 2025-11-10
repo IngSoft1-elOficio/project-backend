@@ -48,48 +48,60 @@ def _run_async_task(coro):
         asyncio.run(coro)
 
 
-def _handle_social_disgrace_check(session: Session, target: CardsXGame):
+def _handle_social_disgrace_check(target: CardsXGame):
     """
     Maneja la verificación de desgracia social después de un cambio en CardsXGame.
-    Esta función se ejecuta de forma síncrona en el contexto de SQLAlchemy.
     
-    IMPORTANTE: NO hace commit, solo flush. El commit debe ser manejado por quien
-    inició la transacción original (el endpoint).
+    IMPORTANTE: Esta función ahora crea su PROPIA sesión de DB para evitar
+    conflictos de 'Session is already flushing' con el listener de SQLAlchemy.
     """
+    logger.warning("DEBUG: 'events.py' listener DESHABILITADO. La lógica manual en el servicio se encargará.")
+    return
+    
     # Saltar si los eventos están deshabilitados (ej: durante tests)
     if not _events_enabled():
         return
     
     # Import aquí para evitar circular imports
-    # (events.py -> service -> models -> database -> events)
     from app.services.social_disgrace_service import (
-        update_social_disgrace_status_no_commit,
+        update_social_disgrace_status, # <-- CAMBIADO: Usamos la función CON commit
         notify_social_disgrace_change
     )
+    from app.db.database import SessionLocal # <-- AÑADIDO: Importamos SessionLocal
     
     if not _should_check_social_disgrace(target):
         return
     
+    logger.warning("DEBUG: 2c. Creando nueva sesión (SessionLocal) para desgracia social...") # <-- LOG DE DEBUG NUEVO
+    
+    db = SessionLocal() # <-- AÑADIDO: Creamos una sesión nueva e independiente
     try:
-        # Actualizar el estado de desgracia social SIN commit
-        # El commit lo hará la transacción padre
-        change_info = update_social_disgrace_status_no_commit(
-            db=session,
+        # Actualizar el estado de desgracia social CON commit, usando la nueva sesión
+        change_info = update_social_disgrace_status( # <-- CAMBIADO: Usamos la función CON commit
+            db=db,
             game_id=target.id_game,
             player_id=target.player_id
         )
         
+        logger.warning(f"DEBUG: 3. (En nueva sesión) 'update_social_disgrace_status' devolvió: {change_info}") # <-- LOG DE DEBUG MEJORADO
+        
         # Si hubo un cambio, programar notificación por WebSocket (operación asíncrona)
         if change_info:
+            logger.warning("DEBUG: 4. (En nueva sesión) ¡HUBO CAMBIO! Llamando a _run_async_task(notify_social_disgrace_change)...") # <-- LOG DE DEBUG MEJORADO
             _run_async_task(
                 notify_social_disgrace_change(
                     game_id=target.id_game,
                     change_info=change_info
                 )
             )
+        else:
+             logger.warning("DEBUG: 4a. (En nueva sesión) NO HUBO CAMBIO. No se emite evento.") # <-- LOG DE DEBUG MEJORADO
             
     except Exception as e:
-        logger.error(f"Error handling social disgrace check: {e}", exc_info=True)
+        logger.error(f"Error handling social disgrace check (con sesión propia): {e}", exc_info=True)
+    finally:
+        logger.warning("DEBUG: 8. Cerrando sesión (SessionLocal) de desgracia social.") # <-- LOG DE DEBUG NUEVO
+        db.close() # <-- AÑADIDO: Cerramos la sesión
 
 
 @event.listens_for(CardsXGame, 'after_update')
@@ -99,20 +111,15 @@ def after_update_cards_x_game(mapper, connection, target):
     
     Este es el caso más común: cuando se revela u oculta un secreto (cambio en 'hidden').
     """
+    logger.warning(f"DEBUG: 1. 'after_update_cards_x_game' DISPARADO para game={target.id_game}, card={target.id_card}, hidden={target.hidden}")
+    
     # Saltar si los eventos están deshabilitados (ej: durante tests)
     if not _events_enabled():
         return
     
-    session = Session.object_session(target)
-    if session is None:
-        logger.warning("No session available for social disgrace check after update")
-        return
+    logger.warning(f"DEBUG: 1c. 'after_update_cards_x_game' - Llamando a _handle_social_disgrace_check...")
     
-    logger.debug(f"🔔 CardsXGame updated: game={target.id_game}, "
-                f"player={target.player_id}, card={target.id_card}, "
-                f"is_in={target.is_in}, hidden={target.hidden}")
-    
-    _handle_social_disgrace_check(session, target)
+    _handle_social_disgrace_check(target)
 
 
 @event.listens_for(CardsXGame, 'after_insert')
@@ -126,16 +133,9 @@ def after_insert_cards_x_game(mapper, connection, target):
     if not _events_enabled():
         return
     
-    session = Session.object_session(target)
-    if session is None:
-        logger.warning("No session available for social disgrace check after insert")
-        return
+    logger.warning(f"🔔 CardsXGame inserted: game={target.id_game}, player={target.player_id}, is_in={target.is_in}, hidden={target.hidden}")
     
-    logger.debug(f"🔔 CardsXGame inserted: game={target.id_game}, "
-                f"player={target.player_id}, card={target.id_card}, "
-                f"is_in={target.is_in}, hidden={target.hidden}")
-    
-    _handle_social_disgrace_check(session, target)
+    _handle_social_disgrace_check(target)
 
 
 @event.listens_for(CardsXGame, 'after_delete')
@@ -192,4 +192,4 @@ def register_events():
     Puede ser llamada desde database.py o main.py para asegurar que los listeners
     estén registrados.
     """
-    logger.info("✅ Social disgrace event listeners registered")
+    print(f"\n✅ Social disgrace event listeners registered")

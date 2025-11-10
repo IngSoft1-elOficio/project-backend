@@ -474,7 +474,7 @@ class WebSocketService:
         }
         
         await self.ws_manager.emit_to_room(room_id, "social_disgrace_update", mensaje)
-        logger.info(f"📡 Emitted social_disgrace_update to room {room_id}: {message}")
+        print(f"'social_disgrace_update' emitido a room {room_id}")
 
     # ==================
     # | NOT SO FAST    |

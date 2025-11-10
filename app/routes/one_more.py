@@ -12,6 +12,7 @@ from app.sockets.socket_service import get_websocket_service
 from app.services.game_status_service import build_complete_game_state
 from datetime import datetime
 import logging
+from app.services.social_disgrace_service import check_and_notify_social_disgrace
 
 
 router = APIRouter(prefix="/api/game", tags=["Events"])
@@ -270,6 +271,8 @@ async def one_more_step_3(
     if not secret:
         raise HTTPException(status_code=404, detail="secret_not_found")
 
+    original_owner_id = secret.player_id
+
     try:
         # calculo nueva posición en el set de secretos del jugador destino
         new_position = (
@@ -312,6 +315,25 @@ async def one_more_step_3(
         success = False
 
     if success:
+        try:
+            if original_owner_id:
+                logging.info(f"Checking social disgrace for original owner {original_owner_id} (lost secret)")
+                # Chequear al jugador que perdió el secreto (podría SALIR de desgracia)
+                await check_and_notify_social_disgrace(
+                    game_id=game.id,
+                    player_id=original_owner_id
+                )
+            
+            if original_owner_id != payload.target_player_id:
+                logging.info(f"Checking social disgrace for new owner {payload.target_player_id} (gained secret)")
+                # Chequear al jugador que ganó el secreto (por si acaso)
+                await check_and_notify_social_disgrace(
+                    game_id=game.id,
+                    player_id=payload.target_player_id
+                )
+        except Exception as e:
+            logging.error(f"Error during social disgrace check in one_more_step_3: {e}")
+
         ws_service = get_websocket_service()
 
         await ws_service.notificar_event_step_update(
