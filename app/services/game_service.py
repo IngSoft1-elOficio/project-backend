@@ -8,6 +8,8 @@ from app.sockets.socket_manager import get_ws_manager
 from sqlalchemy.orm import Session
 from datetime import datetime
 from ..db import crud
+from ..services.social_disgrace_service import get_players_in_social_disgrace
+from ..db import models
 
 logger = logging.getLogger(__name__)
 
@@ -308,3 +310,94 @@ async def _end_game_with_winners(
         winners=winners,
         reason=reason
     )
+
+async def win_for_total_disgrace(db: Session, game_id: int) -> bool:
+    """
+    Verifica si el juego termina porque todos los detectives
+    están en desgracia social.
+    
+    Returns:
+        True si el juego terminó, False si no.
+    """
+    logger.debug(f"Checking 'TOTAL_DISGRACE' win condition for game {game_id}...")
+    fresh_db = SessionLocal()
+    
+    try:
+        logger.debug(f"Checking 'TOTAL_DISGRACE' win condition for game {game_id}...")
+        
+        room = fresh_db.query(models.Room).filter(models.Room.id_game == game_id).first() # <-- USA fresh_db
+        if not room:
+            logger.error(f"Cannot check win condition: Room not found for game {game_id}")
+            return False
+
+        # Encontrar al asesino y complice
+        villain_ids = set()
+        
+        murderer_secret = fresh_db.query(models.CardsXGame).join(models.Card).filter(
+            models.CardsXGame.id_game == game_id,
+            models.Card.name == "You are the Murderer!!",
+            models.CardsXGame.is_in == models.CardState.SECRET_SET
+        ).first()
+        
+        if not murderer_secret or not murderer_secret.player_id:
+            logger.error(f"Cannot check win condition: Murderer not found for game {game_id}")
+            return False 
+        
+        villain_ids.add(murderer_secret.player_id)
+        
+        accomplice_id = await _get_accomplice(fresh_db, game_id)
+        if accomplice_id:
+            villain_ids.add(accomplice_id)
+
+        logger.debug(f"Villain IDs for game {game_id}: {villain_ids}")
+
+        # Encontrar a todos los jugadores ---
+        all_players = fresh_db.query(models.Player).filter(models.Player.id_room == room.id).all()
+        if not all_players:
+            logger.error(f"Cannot check win condition: No players found for game {game_id}")
+            return False
+            
+        # Encontrar jugadores en desgracia ---
+        disgraced_players = get_players_in_social_disgrace(fresh_db, game_id)
+        disgraced_player_ids = {p['player_id'] for p in disgraced_players}
+        
+        logger.warning(f"DEBUG (win_for_total_disgrace): Jugadores en desgracia (leído por sesión fresca): {disgraced_player_ids}")
+
+        # Verificacion Logica
+        all_good_players_in_disgrace = True
+        for player in all_players:
+            if player.id in villain_ids:
+                continue 
+            
+            if player.id not in disgraced_player_ids:
+                all_good_players_in_disgrace = False 
+                break
+        
+        # Si la condicion se cumple, terminar el juego
+        if all_good_players_in_disgrace:
+            logger.info(f"¡VICTORIA POR DESGRACIA TOTAL en game {game_id}! Los malos ganan.")
+            
+            winner_players = [p for p in all_players if p.id in villain_ids]
+            winner_list = [
+                {"player_id": p.id, "name": p.name} for p in winner_players
+            ]
+            
+            # _end_game_with_winners también crea su propia sesion, pero por si acaso,
+            # le pasamos la sesion fresca que sabemos que funciona.
+            await _end_game_with_winners( 
+                db=fresh_db,
+                game_id=game_id,
+                room_id=room.id,
+                winners=winner_list,
+                reason="TOTAL_DISGRACE" 
+            )
+            return True # El juego termino
+
+        logger.debug("Win condition 'TOTAL_DISGRACE' not met.")
+        return False # El juego no termino
+
+    except Exception as e:
+        logger.error(f"Error en win_for_total_disgrace: {e}", exc_info=True)
+        return False # Asegurarse de retornar False en caso de error
+    finally:
+        fresh_db.close() #Cierra la sesion fresca.
