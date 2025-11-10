@@ -164,3 +164,43 @@ SET_ACTION_NAMES = {
     SetType.EILEENBRENT: "play_EileenBrent_set",
     SetType.BERESFORD: "play_Beresford_set",
 }
+
+class addDetectiveToSetRequest(BaseModel):
+    """Request para agregar un detective a un set de detectives"""
+    owner: int = Field(..., description="ID del jugador que agrega el detective")
+    setType: SetType = Field(..., description="Tipo de set de detective")
+    card: int = Field(..., description="ID de la carta a agregar (CardsXGame.id)")
+    setPosition: int = Field(..., description="Posición del set al que se le agrega la carta")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "owner": 7,
+                "setType": "poirot",
+                "card": 45,
+                "setPosition": 1
+            }
+        }
+
+
+class addDetectiveToSetResponse(BaseModel):
+    """Response después de agregar un detective a un set"""
+    success: bool
+    actionId: int = Field(..., description="ID de la acción creada en ActionsPerTurn")
+    nextAction: NextAction = Field(..., description="Información sobre qué debe hacer el jugador a continuación")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "actionId": 502,
+                "nextAction": {
+                    "type": "selectPlayerAndSecret",
+                    "allowedPlayers": [2, 3, 4],
+                    "metadata": {
+                        "hasWildcard": False,
+                        "secretsPool": []
+                    }
+                }
+            }
+        }

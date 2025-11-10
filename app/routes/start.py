@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.crud import create_game
 from app.db.database import SessionLocal
-from app.db.models import Player, Room, Card, CardsXGame, CardState, CardType, RoomStatus
+from app.db.models import Player, Room, Card, CardsXGame, CardState, CardType, RoomStatus, Turn, TurnStatus
 from app.schemas.start import StartRequest
 from app.sockets.socket_service import get_websocket_service
 from datetime import date, datetime
@@ -87,6 +87,20 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
         db.commit()
         db.refresh(game)
 
+        # Crear el primer turno en la tabla Turn
+        first_turn = Turn(
+            number=1,
+            id_game=game.id,
+            player_id=first_player.id,
+            status=TurnStatus.IN_PROGRESS,
+            start_time=datetime.now()
+        )
+        db.add(first_turn)
+        db.commit()
+        db.refresh(first_turn)
+        
+        logger.info(f"✅ Created first turn: number=1, game_id={game.id}, player_id={first_player.id}")
+
         exclude_special = ['Card Back', 'Murderer Escapes!', 'Secret Front']
 
         def pick_cards(card_types: typing.List[CardType], count: int, exclude_names: typing.List[str] = None) -> typing.List[Card]:
@@ -115,6 +129,8 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
 
         # Repartir cartas
         for i, p in enumerate(players_sorted):
+            if num_players == 2:
+                exclude_special.extend(['Point your suspicions', 'Blackmailed'])    
             game_cards = pick_cards([CardType.EVENT, CardType.DEVIUOS, CardType.DETECTIVE], 5, exclude_special)
             instant_cards = pick_cards([CardType.INSTANT], 1, exclude_special)
 
@@ -196,7 +212,11 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
 
         deck_pool = []
         for c in remaining_cards:
-            deck_pool.extend([c] * c.qty)
+            if num_players > 2:
+                deck_pool.extend([c] * c.qty)
+            else:
+                if c.name != 'Point your suspicions' and c.name != 'Blackmailed':
+                    deck_pool.extend([c] * c.qty)
 
         # Eliminar cartas que ya estan repartidas
         for mano in manos.values():
@@ -212,6 +232,15 @@ async def start_game(room_id: int, userid: StartRequest, db: Session = Depends(g
                     break
 
         random.shuffle(deck_pool)
+
+        firstDiscard = deck_pool.pop(0) if deck_pool else None
+        if firstDiscard:
+            db.add(CardsXGame(
+                id_game=game.id,
+                id_card=firstDiscard.id,
+                is_in=CardState.DISCARD,
+                position=1
+            ))
 
         for pos, c in enumerate(deck_pool, start=1):
             db.add(CardsXGame(

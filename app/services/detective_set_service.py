@@ -8,7 +8,7 @@ from ..db.models import (
 )
 from ..db import crud
 from ..schemas.detective_set_schema import (
-    SetType, PlayDetectiveSetRequest, NextActionType, 
+    SetType, PlayDetectiveSetRequest, addDetectiveToSetRequest, NextActionType, 
     NextAction, NextActionMetadata, SecretInfo, SET_MIN_CARDS, SET_ACTION_NAMES
 )
 
@@ -66,8 +66,8 @@ class DetectiveSetService:
         # 6. Validar que el set es válido según el tipo
         self._validate_set_combination(cards, request.setType, request.hasWildcard)
         
-        # 7. Obtener la siguiente posición de set disponible
-        next_position = self._get_next_set_position(game_id)
+        # 7. Obtener la siguiente posición de set disponible para este jugador
+        next_position = self._get_next_set_position(game_id, player.id)
         
         # 8. Actualizar las cartas a DETECTIVE_SET (moverlas de HAND)
         self._move_cards_to_detective_set(cards, next_position)
@@ -92,6 +92,149 @@ class DetectiveSetService:
         self.db.commit()
         
         return action.id, next_action
+    
+    def add_detective_to_set(
+        self, 
+        game_id: int, 
+        request: addDetectiveToSetRequest
+    ) -> Tuple[int, NextAction]:
+        """
+        Agrega una carta detective a un set existente y ejecuta el efecto nuevamente.
+        
+        Returns:
+            Tuple[action_id, next_action]
+        
+        Raises:
+            HTTPException con códigos 400, 403, 404, 409
+        """
+        # 1-4. Validaciones básicas
+        game = self._get_game(game_id)
+        player = self._get_player(request.owner, game_id)
+        self._validate_player_turn(game, player)
+        current_turn = self._get_current_turn(game_id, player.id)
+        
+        # 5. Validar que la carta existe y está en la mano del jugador
+        cards = self._validate_cards_in_hand([request.card], player.id, game_id)
+        if not cards:
+            raise HTTPException(
+                status_code=400,
+                detail="Card not in player's hand"
+            )
+        card = cards[0]
+        
+        # 6. Validar que NO es comodín Harley Quin
+        if card.id_card == self.HARLEY_QUIN_CARD_ID:
+            raise HTTPException(
+                status_code=400,
+                detail="Harley Quin wildcards cannot be added to existing sets"
+            )
+        
+        # 7. Validar que la carta es del tipo correcto para el set
+        self._validate_card_for_add_to_set(card, request.setType)
+        
+        # 8. Validar que el set existe y pertenece al jugador
+        self._validate_set_exists(game_id, player.id, request.setPosition)
+        
+        # 9. Agregar la carta al set
+        try:
+            crud.update_cards_state(
+                self.db, 
+                [card], 
+                CardState.DETECTIVE_SET, 
+                request.setPosition, 
+                hidden=False
+            )
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+        
+        # 10. Crear la acción ADD_DETECTIVE
+        action = self._create_add_detective_action(
+            game_id=game_id,
+            turn_id=current_turn.id,
+            player_id=player.id,
+            set_type=request.setType,
+            set_position=request.setPosition
+        )
+        
+        # 11. Determinar siguiente acción (sin wildcard porque no se permiten)
+        next_action = self._determine_next_action(
+            set_type=request.setType,
+            has_wildcard=False,
+            game_id=game_id,
+            owner_id=player.id
+        )
+        
+        # 12. Commit
+        try:
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+        
+        return action.id, next_action
+
+    def _validate_card_for_add_to_set(self, card: CardsXGame, set_type: SetType):
+        """Valida que la carta puede agregarse al tipo de set.
+        Tommy y Tuppence pueden agregarse mutuamente a sets BERESFORD."""
+        card_id = card.id_card
+        
+        # Caso especial: Beresford permite Tommy o Tuppence
+        if set_type == SetType.BERESFORD:
+            if card_id not in [self.TOMMY_BERESFORD_CARD_ID, self.TUPPENCE_BERESFORD_CARD_ID]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Card must be Tommy or Tuppence Beresford"
+                )
+            return
+        
+        # Para otros sets: debe coincidir exactamente
+        expected_card_id = self.SET_CARD_IDS.get(set_type)
+        if card_id != expected_card_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Card type does not match {set_type.value} set"
+            )
+
+    def _validate_set_exists(self, game_id: int, player_id: int, position: int):
+        """Valida que existe un set en la posición indicada"""
+        existing_cards = self.db.query(CardsXGame).filter(
+            CardsXGame.id_game == game_id,
+            CardsXGame.player_id == player_id,
+            CardsXGame.is_in == CardState.DETECTIVE_SET,
+            CardsXGame.position == position
+        ).count()
+        
+        if existing_cards == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No detective set found at position {position}"
+            )
+
+    def _create_add_detective_action(
+        self,
+        game_id: int,
+        turn_id: int,
+        player_id: int,
+        set_type: SetType,
+        set_position: int
+    ) -> ActionsPerTurn:
+        """Crea la acción ADD_DETECTIVE en ActionsPerTurn"""
+        action_data = {
+            "id_game": game_id,
+            "turn_id": turn_id,
+            "player_id": player_id,
+            "action_name": SET_ACTION_NAMES[set_type],
+            "action_type": ActionType.ADD_DETECTIVE,
+            "result": ActionResult.PENDING,
+            "selected_set_id": set_position,
+            "parent_action_id": None,
+            "triggered_by_action_id": None
+        }
+        
+        return crud.create_action(self.db, action_data)
     
     def _get_game(self, game_id: int) -> Game:
         """Obtiene el juego o lanza 404"""
@@ -270,9 +413,11 @@ class DetectiveSetService:
                 detail=f"Set contains invalid cards for {set_type.value}"
             )
     
-    def _get_next_set_position(self, game_id: int) -> int:
-        """Obtiene la siguiente posición disponible para un nuevo set"""
-        max_position = crud.get_max_position_by_state(self.db, game_id, CardState.DETECTIVE_SET)
+    def _get_next_set_position(self, game_id: int, player_id: int) -> int:
+        """Obtiene la siguiente posición disponible para un nuevo set del jugador"""
+        max_position = crud.get_max_position_for_player_by_state(
+            self.db, game_id, player_id, CardState.DETECTIVE_SET
+        )
         return max_position + 1
     
     def _move_cards_to_detective_set(self, cards: List[CardsXGame], position: int):

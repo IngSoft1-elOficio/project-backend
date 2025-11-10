@@ -408,3 +408,27 @@ class TestPlayDetectiveSetRoute:
             },
         )
         assert resp.status_code == 200
+
+    def test_service_raises_non_http_exception(self, client, setup_game_data, monkeypatch):
+        """Test when service raises a non-HTTPException error (lines 63-69)"""
+        from app.routes import play_detective_set as route_mod
+
+        def boom(*args, **kwargs):
+            raise ValueError("Service logic error")
+
+        monkeypatch.setattr(route_mod.DetectiveSetService, "play_detective_set", boom)
+
+        data = setup_game_data
+        resp = client.post(
+            f"/api/game/{data['room_id']}/play-detective-set",
+            json={
+                "owner": data['player1_id'],
+                "setType": "marple",
+                "cards": data['card_ids'],
+                "hasWildcard": True,
+            },
+        )
+        
+        # Should return 500 when service raises non-HTTPException
+        assert resp.status_code == 500
+        assert "Internal server error" in resp.json()["detail"]

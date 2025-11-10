@@ -86,18 +86,20 @@ class TestGameService:
 @pytest.mark.asyncio
 async def test_procesar_ultima_carta_mazo_no_vacio():
     """Si el mazo tiene más de 1 carta, no debe notificar fin de partida"""
-    with patch('app.sockets.socket_service.get_websocket_service') as mock_ws_service:
+    with patch('app.sockets.socket_service.get_websocket_service') as mock_ws_service, \
+         patch('app.services.game_service.finalizar_partida', new_callable=AsyncMock) as mock_finalizar:
         mock_ws = Mock()
         mock_ws_service.return_value = mock_ws
 
         game_state = {
-            "mazos": {"deck": {"count": 5}},  # mazo > 1
+            "mazos": {"deck": {"count": 5, "draft": [{"id": 1}, {"id": 2}]}},  # mazo > 1, draft no vacío
             "jugadores": [],
             "estados_privados": {}
         }
 
         await procesar_ultima_carta(123, 1, game_state)
         mock_ws.notificar_fin_partida.assert_not_called()
+        mock_finalizar.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -49,6 +49,11 @@ class TurnStatus(str, enum.Enum):
     FINISHED = "FINISHED"
 
 
+class Direction(str, enum.Enum):
+    LEFT = "LEFT"
+    RIGHT = "RIGHT"
+
+
 class ActionType(str, enum.Enum):
     EVENT_CARD = "EVENT_CARD"
     DETECTIVE_SET = "DETECTIVE_SET"
@@ -56,6 +61,7 @@ class ActionType(str, enum.Enum):
     DISCARD = "DISCARD"
     DRAW = "DRAW"
     INSTANT = "INSTANT"
+    INIT = "INIT"
     REVEAL_SECRET = "REVEAL_SECRET"
     HIDE_SECRET = "HIDE_SECRET"
     VOTE = "VOTE"
@@ -64,11 +70,68 @@ class ActionType(str, enum.Enum):
     STEAL_SET = "STEAL_SET"
 
 
+class ActionName(str, enum.Enum):
+    # Discard/Draw actions
+    END_TURN_DISCARD = "End Turn Discard"
+    DRAW_FROM_DECK = "Draw from Deck"
+    DRAFT_PHASE = "Draft Phase"
+    
+    # Detective cards
+    MISS_MARPLE = "Miss Marple"
+    HERCULE_POIROT = "Hercule Poirot"
+    MR_SATTERTHWAITE = "Mr Satterthwaite + Wildcard"
+    PARKER_PYNE = "Parker Pyne"
+    TOMMY_TUPPENCE = "Tommy + Tuppence Beresford"
+    BUNDLE_BRENT = "Lady Eileen Bundle Brent"
+    ARIADNE_OLIVER = "Ariadne Oliver"
+    
+    # Detective set actions
+    PLAY_POIROT_SET = "play_Poirot_set"
+    PLAY_MARPLE_SET = "play_Marple_set"
+    PLAY_SATTERTHWAITE_SET = "play_Satterthwaite_set"
+    PLAY_PYNE_SET = "play_Pyne_set"
+    PLAY_EILEENBRENT_SET = "play_EileenBrent_set"
+    PLAY_BERESFORD_SET = "play_Beresford_set"
+    
+    # Detective effects
+    MISS_MARPLE_EFFECT = "Miss Marple Effect"
+    HERCULE_POIROT_EFFECT = "Hercule Poirot Effect"
+    SATTERTHWAITE_SPECIAL_EFFECT = "Satterthwaite Special Effect"
+    PARKER_PYNE_EFFECT = "Parker Pyne Effect"
+    TOMMY_TUPPENCE_EFFECT = "Tommy/Tuppence Effect"
+    ARIADNE_OLIVER_EFFECT = "Ariadne Oliver Effect"
+    
+    # Event cards
+    CARD_TRADE = "Card Trade"
+    DEAD_CARD_FOLLY = "Dead Card Folly"
+    POINT_YOUR_SUSPICIONS = "Point Your Suspicions"
+    ANOTHER_VICTIM = "Another Victim"
+    LOOK_INTO_THE_ASHES = "Look Into the Ashes"
+    AND_THEN_THERE_WAS_ONE_MORE = "And Then There Was One More"
+    DELAY_THE_MURDERERS_ESCAPE = "Delay the Murderers Escape"
+    EARLY_TRAIN_TO_PADDINGTON = "Early Train to Paddington"
+    CARDS_OFF_THE_TABLE = "Cards Off the Table"
+    
+    # Event effects
+    POINT_YOUR_SUSPICIONS_EFFECT = "Point Your Suspicions Effect"
+    
+    # Instant cards
+    INSTANT_START = "Instant Start"
+    INSTANT_PLAY = "Instant Play"
+    
+    # Devious cards
+    BLACKMAILED = "Blackmailed"
+    BLACKMAILED_EFFECT = "Blackmailed Effect"
+    SOCIAL_FAUX_PAS = "Social Faux Pas"
+    SOCIAL_FAUX_PAS_EFFECT = "Social Faux Pas Effect"
+
+
 class ActionResult(str, enum.Enum):
     PENDING = "PENDING"
     SUCCESS = "SUCCESS"
     CANCELLED = "CANCELLED"
     FAILED = "FAILED"
+    CONTINUE = "CONTINUE"
 
 
 class Direction(str, enum.Enum):
@@ -184,6 +247,7 @@ class ActionsPerTurn(Base):
     turn_id = Column(Integer, ForeignKey("turn.id"))
     player_id = Column(Integer, ForeignKey("player.id"), nullable=False)
     action_time = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    action_time_end = Column(DateTime)
     action_name = Column(String(40))
     action_type = Column(Enum(ActionType))
     result = Column(Enum(ActionResult), default=ActionResult.PENDING)
@@ -221,3 +285,23 @@ class ActionsPerTurn(Base):
     card_received = relationship("CardsXGame", foreign_keys=[card_received_id])
     parent_action = relationship("ActionsPerTurn", remote_side=[id], foreign_keys=[parent_action_id])
     triggered_by = relationship("ActionsPerTurn", remote_side=[id], foreign_keys=[triggered_by_action_id])
+
+
+class SocialDisgracePlayer(Base):
+    """
+    Tabla que registra qué jugadores están en desgracia social.
+    Un jugador entra en desgracia social cuando todos sus secretos están revelados (hidden=False).
+    """
+    __tablename__ = "social_disgrace_player"
+    __table_args__ = (
+        UniqueConstraint("id_game", "player_id", name="uq_social_disgrace_game_player"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    id_game = Column(Integer, ForeignKey("game.id"), nullable=False)
+    player_id = Column(Integer, ForeignKey("player.id"), nullable=False)
+    entered_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    
+    # Relaciones
+    game = relationship("Game")
+    player = relationship("Player")
