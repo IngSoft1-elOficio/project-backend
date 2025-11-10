@@ -745,3 +745,345 @@ async def test_execute_satterthwaite_with_wildcard(db, setup_game_with_players, 
     assert transfer_action is not None
     assert transfer_action.player_source == data["player2"].id
     assert transfer_action.player_target == data["player1"].id
+
+def test_get_set_type_unknown_action(db):
+    """Test que falla con action_name desconocido"""
+    service = DetectiveActionService(db)
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service._get_set_type("play_UnknownSet")
+    
+    assert exc_info.value.status_code == 400
+    assert "Unknown action name" in str(exc_info.value.detail)
+
+
+def test_validate_inputs_missing_secret_id(db, setup_game_with_players):
+    """Test que falla cuando falta secretId"""
+    data = setup_game_with_players
+    service = DetectiveActionService(db)
+    
+    request = DetectiveActionRequest(
+        actionId=1,
+        executorId=data["player1"].id,
+        targetPlayerId=data["player2"].id,
+        secretId=None  # Falta
+    )
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service._validate_inputs(request, SetType.POIROT, data["player1"].id)
+    
+    assert exc_info.value.status_code == 400
+    assert "secretId is required" in str(exc_info.value.detail)
+
+
+def test_validate_inputs_missing_target_for_poirot(db, setup_game_with_players):
+    """Test que falla cuando falta targetPlayerId para Poirot"""
+    data = setup_game_with_players
+    service = DetectiveActionService(db)
+    
+    request = DetectiveActionRequest(
+        actionId=1,
+        executorId=data["player1"].id,
+        targetPlayerId=None,  # Falta
+        secretId=123
+    )
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service._validate_inputs(request, SetType.POIROT, data["player1"].id)
+    
+    assert exc_info.value.status_code == 400
+    assert "targetPlayerId is required" in str(exc_info.value.detail)
+
+
+def test_validate_inputs_cannot_target_yourself(db, setup_game_with_players):
+    """Test que falla cuando targetPlayerId es el mismo owner"""
+    data = setup_game_with_players
+    service = DetectiveActionService(db)
+    
+    request = DetectiveActionRequest(
+        actionId=1,
+        executorId=data["player1"].id,
+        targetPlayerId=data["player1"].id,  # Mismo owner
+        secretId=123
+    )
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service._validate_inputs(request, SetType.POIROT, data["player1"].id)
+    
+    assert exc_info.value.status_code == 400
+    assert "Cannot target yourself" in str(exc_info.value.detail)
+
+
+def test_get_player_not_found(db, setup_game_with_players):
+    """Test que falla si el jugador no existe"""
+    data = setup_game_with_players
+    service = DetectiveActionService(db)
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service._get_player(9999, data["game"].id)
+    
+    assert exc_info.value.status_code == 404
+    assert "Player not found" in str(exc_info.value.detail)
+
+
+def test_get_player_wrong_game(db, setup_game_with_players):
+    """Test que falla si el jugador pertenece a otro juego"""
+    data = setup_game_with_players
+    service = DetectiveActionService(db)
+    
+    # Crear otro juego
+    game2 = models.Game()
+    db.add(game2)
+    db.commit()
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service._get_player(data["player1"].id, game2.id)
+    
+    assert exc_info.value.status_code == 403
+    assert "does not belong to this game" in str(exc_info.value.detail)
+
+
+def test_get_secret_card_not_found(db, setup_game_with_players):
+    """Test que falla si el secreto no existe"""
+    data = setup_game_with_players
+    service = DetectiveActionService(db)
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service._get_secret_card(9999, data["player2"].id, data["game"].id)
+    
+    assert exc_info.value.status_code == 404
+    assert "Secret card not found" in str(exc_info.value.detail)
+
+
+def test_get_secret_card_wrong_game(db, setup_game_with_players, setup_detective_cards):
+    """Test que falla si el secreto pertenece a otro juego"""
+    data = setup_game_with_players
+    cards = setup_detective_cards
+    service = DetectiveActionService(db)
+    
+    # Crear secreto en juego 1
+    secret = models.CardsXGame(
+        id_game=data["game"].id,
+        id_card=cards["murderer"].id,
+        is_in=models.CardState.SECRET_SET,
+        position=1,
+        player_id=data["player2"].id,
+        hidden=True
+    )
+    db.add(secret)
+    db.commit()
+    db.refresh(secret)
+    
+    # Crear otro juego
+    game2 = models.Game()
+    db.add(game2)
+    db.commit()
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service._get_secret_card(secret.id, data["player2"].id, game2.id)
+    
+    assert exc_info.value.status_code == 400
+    assert "does not belong to this game" in str(exc_info.value.detail)
+
+
+def test_get_secret_card_wrong_player(db, setup_game_with_players, setup_detective_cards):
+    """Test que falla si el secreto no pertenece al target player"""
+    data = setup_game_with_players
+    cards = setup_detective_cards
+    service = DetectiveActionService(db)
+    
+    # Crear secreto del player2
+    secret = models.CardsXGame(
+        id_game=data["game"].id,
+        id_card=cards["murderer"].id,
+        is_in=models.CardState.SECRET_SET,
+        position=1,
+        player_id=data["player2"].id,
+        hidden=True
+    )
+    db.add(secret)
+    db.commit()
+    db.refresh(secret)
+    
+    # Intentar obtenerlo como si fuera del player1
+    with pytest.raises(HTTPException) as exc_info:
+        service._get_secret_card(secret.id, data["player1"].id, data["game"].id)
+    
+    assert exc_info.value.status_code == 400
+    assert "does not belong to the target player" in str(exc_info.value.detail)
+
+
+def test_get_secret_card_not_in_secret_set(db, setup_game_with_players, setup_detective_cards):
+    """Test que falla si la carta no está en SECRET_SET"""
+    data = setup_game_with_players
+    cards = setup_detective_cards
+    service = DetectiveActionService(db)
+    
+    # Crear carta en HAND (no en SECRET_SET)
+    card = models.CardsXGame(
+        id_game=data["game"].id,
+        id_card=cards["murderer"].id,
+        is_in=models.CardState.HAND,  # En mano
+        position=1,
+        player_id=data["player2"].id,
+        hidden=False
+    )
+    db.add(card)
+    db.commit()
+    db.refresh(card)
+    
+    with pytest.raises(HTTPException) as exc_info:
+        service._get_secret_card(card.id, data["player2"].id, data["game"].id)
+    
+    assert exc_info.value.status_code == 400
+    assert "not in a secret set" in str(exc_info.value.detail)
+
+
+# ------------------------------
+# TESTS - CHECK WILDCARD
+# ------------------------------
+
+def test_check_action_has_wildcard_true(db, setup_game_with_players, setup_detective_cards):
+    """Test que detecta wildcard en el set"""
+    data = setup_game_with_players
+    cards = setup_detective_cards
+    service = DetectiveActionService(db)
+    
+    # Crear acción
+    action = models.ActionsPerTurn(
+        id_game=data["game"].id,
+        turn_id=data["turn"].id,
+        player_id=data["player1"].id,
+        action_name="play_Poirot_set",
+        action_type=models.ActionType.DETECTIVE_SET,
+        result=models.ActionResult.PENDING
+    )
+    db.add(action)
+    db.commit()
+    
+    # Crear set con wildcard
+    wildcard = models.CardsXGame(
+        id_game=data["game"].id,
+        id_card=4,  # Harley Quin
+        is_in=models.CardState.DETECTIVE_SET,
+        position=1,
+        player_id=data["player1"].id,
+        hidden=False
+    )
+    db.add(wildcard)
+    db.commit()
+    
+    assert service._check_action_has_wildcard(action) is True
+
+
+def test_check_action_has_wildcard_false(db, setup_game_with_players, setup_detective_cards):
+    """Test que NO detecta wildcard cuando no hay"""
+    data = setup_game_with_players
+    cards = setup_detective_cards
+    service = DetectiveActionService(db)
+    
+    # Crear acción
+    action = models.ActionsPerTurn(
+        id_game=data["game"].id,
+        turn_id=data["turn"].id,
+        player_id=data["player1"].id,
+        action_name="play_Poirot_set",
+        action_type=models.ActionType.DETECTIVE_SET,
+        result=models.ActionResult.PENDING
+    )
+    db.add(action)
+    db.commit()
+    
+    # Crear set SIN wildcard
+    poirot = models.CardsXGame(
+        id_game=data["game"].id,
+        id_card=cards["poirot"].id,
+        is_in=models.CardState.DETECTIVE_SET,
+        position=1,
+        player_id=data["player1"].id,
+        hidden=False
+    )
+    db.add(poirot)
+    db.commit()
+    
+    assert service._check_action_has_wildcard(action) is False
+
+
+# ------------------------------
+# TESTS - GET PLAYER SECRETS
+# ------------------------------
+
+def test_get_player_secrets_for_pyne(db, setup_game_with_players, setup_detective_cards):
+    """Test que obtiene solo secretos revelados para Pyne"""
+    data = setup_game_with_players
+    cards = setup_detective_cards
+    service = DetectiveActionService(db)
+    
+    # Crear secretos: 1 revelado, 1 oculto
+    secret1 = models.CardsXGame(
+        id_game=data["game"].id,
+        id_card=cards["innocent"].id,
+        is_in=models.CardState.SECRET_SET,
+        position=1,
+        player_id=data["player2"].id,
+        hidden=False  # Revelado
+    )
+    secret2 = models.CardsXGame(
+        id_game=data["game"].id,
+        id_card=cards["accomplice"].id,
+        is_in=models.CardState.SECRET_SET,
+        position=2,
+        player_id=data["player2"].id,
+        hidden=True  # Oculto
+    )
+    db.add_all([secret1, secret2])
+    db.commit()
+    
+    secrets = service._get_player_secrets(
+        data["game"].id,
+        data["player2"].id,
+        SetType.PYNE
+    )
+    
+    # Solo debe retornar el revelado
+    assert len(secrets) == 1
+    assert secrets[0].hidden is False
+    assert secrets[0].position == 1
+
+
+def test_get_player_secrets_for_poirot(db, setup_game_with_players, setup_detective_cards):
+    """Test que obtiene solo secretos ocultos para Poirot"""
+    data = setup_game_with_players
+    cards = setup_detective_cards
+    service = DetectiveActionService(db)
+    
+    # Crear secretos: 1 revelado, 1 oculto
+    secret1 = models.CardsXGame(
+        id_game=data["game"].id,
+        id_card=cards["innocent"].id,
+        is_in=models.CardState.SECRET_SET,
+        position=1,
+        player_id=data["player2"].id,
+        hidden=False  # Revelado
+    )
+    secret2 = models.CardsXGame(
+        id_game=data["game"].id,
+        id_card=cards["accomplice"].id,
+        is_in=models.CardState.SECRET_SET,
+        position=2,
+        player_id=data["player2"].id,
+        hidden=True  # Oculto
+    )
+    db.add_all([secret1, secret2])
+    db.commit()
+    
+    secrets = service._get_player_secrets(
+        data["game"].id,
+        data["player2"].id,
+        SetType.POIROT
+    )
+    
+    # Solo debe retornar el oculto
+    assert len(secrets) == 1
+    assert secrets[0].hidden is True
+    assert secrets[0].position == 2

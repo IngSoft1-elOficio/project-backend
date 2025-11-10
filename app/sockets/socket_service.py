@@ -445,11 +445,6 @@ class WebSocketService:
         players_in_disgrace: List[Dict[str, Any]],
         change_info: Optional[Dict[str, Any]] = None
     ):
-        print(f"🔥 notificar_social_disgrace_update INICIADO")
-        print(f"🔥 room_id: {room_id}")
-        print(f"🔥 game_id: {game_id}")
-        print(f"🔥 players_in_disgrace: {players_in_disgrace}")
-        print(f"🔥 change_info: {change_info}")
         """
         Notifica a todos los jugadores sobre cambios en desgracia social.
         
@@ -479,7 +474,7 @@ class WebSocketService:
         }
         
         await self.ws_manager.emit_to_room(room_id, "social_disgrace_update", mensaje)
-        print(f"✅ Emitido 'social_disgrace_update' a room {room_id}")
+        print(f"'social_disgrace_update' emitido a room {room_id}")
 
     # ==================
     # | NOT SO FAST    |

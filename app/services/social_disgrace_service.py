@@ -59,8 +59,6 @@ def update_social_disgrace_status_no_commit(
 ) -> Optional[Dict]:
     """
     Actualiza el estado de desgracia social de un jugador SIN hacer commit.
-    
-    ... (la descripción sigue igual) ...
     """
     try:
         should_be_in_disgrace = check_player_social_disgrace_status(db, game_id, player_id)
@@ -69,12 +67,10 @@ def update_social_disgrace_status_no_commit(
         player = crud.get_player_by_id(db, player_id)
         player_name = player.name if player else f"Player {player_id}"
         
-        # --- INICIO DE LA MODIFICACIÓN ---
         # Obtenemos el avatar_src y ponemos uno por defecto si no existe
         avatar_src = "./avatar1.jpg" # Avatar por defecto si 'player' es None o no tiene 'avatar_src'
         if player and hasattr(player, 'avatar_src') and player.avatar_src:
             avatar_src = player.avatar_src
-        # --- FIN DE LA MODIFICACIÓN ---
             
         
         # Caso 1: Debe estar en desgracia pero no está registrado -> AGREGAR
@@ -223,8 +219,6 @@ async def notify_social_disgrace_change(
         
         local_room_id = room.id # <-- ¡SOLUCIÓN AL CRASH!
         logger.warning(f"DEBUG: 5b. Room ID {local_room_id} obtenido.")
-
-        # --- ARREGLO PARA ISOLATION ---
         
         # 2. Sincronizamos la sesión
         db.commit() 
@@ -240,8 +234,6 @@ async def notify_social_disgrace_change(
             db.commit() # Re-sincronizamos
             players_in_disgrace = get_players_in_social_disgrace(db, game_id)
             logger.warning(f"DEBUG: 6c. Segunda consulta (post-sleep) devolvió: {players_in_disgrace}")
-        
-        # --- FIN DEL ARREGLO ---
         
         ws_service = get_websocket_service()
         

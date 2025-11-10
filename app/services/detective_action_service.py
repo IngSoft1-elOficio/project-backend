@@ -90,7 +90,6 @@ class DetectiveActionService:
         owner_id: int,
         room_id: int
     ) -> DetectiveActionResponse:
-        print("\n🔥🔥🔥 _handle_single_step_action INICIADO")
         """Maneja detectives de 1 paso (Marple, Poirot, Pyne)"""
         self._validate_executor(request.executorId, owner_id, set_type, request.targetPlayerId)
         
@@ -115,7 +114,6 @@ class DetectiveActionService:
         
         crud.update_action_result(self.db, action.id, ActionResult.SUCCESS)
         self.db.commit()
-        print(f"🔥 COMMIT HECHO - game_id: {game_id}, target_player_id: {target_player_id}")
 
         await check_and_notify_social_disgrace(
             game_id=game_id,
@@ -262,7 +260,7 @@ class DetectiveActionService:
         
         return DetectiveActionResponse(
             success=True,
-            completed=True,  # Acción COMPLETADA
+            completed=True,  # Accion completada
             nextAction=None,
             effects=effects
         )
