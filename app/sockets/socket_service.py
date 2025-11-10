@@ -199,6 +199,85 @@ class WebSocketService:
         await self.ws_manager.emit_to_room(room_id, "detective_action_started", mensaje)
         logger.info(f"✅ Emitted detective_action_started to room {room_id}")
     
+    async def notificar_card_trade_select_own_card(
+        self,
+        room_id: int,
+        action_id: int,
+        requester_id: int,
+        requester_name: str,
+        target_id: int
+    ):
+        """
+        Notifica a P2 (target) que debe seleccionar su carta para el intercambio.
+        
+        Args:
+            room_id: ID de la sala
+            action_id: ID de la acción de Card Trade
+            requester_id: ID del jugador que inició el trade (P1)
+            requester_name: Nombre del jugador que inició el trade
+            target_id: ID del jugador que debe seleccionar (P2)
+        """
+        event_data = {
+            "action_id": action_id,
+            "requester_id": requester_id,
+            "requester_name": requester_name,
+            "target_id": target_id,
+            "message": f"{requester_name} quiere intercambiar una carta contigo"
+        }
+        
+        await self.sio.emit(
+            "card_trade_select_own_card",
+            event_data,
+            room=f"room_{room_id}"
+        )
+        
+        logger.info(
+            f"[WS] card_trade_select_own_card emitido a room {room_id}. "
+            f"Target: {target_id}, Requester: {requester_id}, Action: {action_id}"
+        )
+
+
+    async def notificar_card_trade_complete(
+        self,
+        room_id: int,
+        player1_id: int,
+        player1_name: str,
+        player2_id: int,
+        player2_name: str,
+        message: str
+    ):
+        """
+        Notifica a todos los jugadores que el Card Trade se completó exitosamente.
+        
+        Args:
+            room_id: ID de la sala
+            player1_id: ID del jugador que inició el trade
+            player1_name: Nombre del jugador que inició el trade
+            player2_id: ID del jugador objetivo
+            player2_name: Nombre del jugador objetivo
+            message: Mensaje descriptivo del intercambio
+        """
+        event_data = {
+            "player1_id": player1_id,
+            "player1_name": player1_name,
+            "player2_id": player2_id,
+            "player2_name": player2_name,
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.sio.emit(
+            "card_trade_complete",
+            event_data,
+            room=f"room_{room_id}"
+        )
+        
+        logger.info(
+            f"[WS] card_trade_complete emitido a room {room_id}. "
+            f"P1: {player1_id}, P2: {player2_id}"
+        )
+        
+    
     async def notificar_detective_target_selected(
         self,
         room_id: int,
