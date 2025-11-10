@@ -49,7 +49,7 @@ class VictimResponse(BaseModel):
 async def another_victim(
     room_id: int,
     request: VictimRequest,
-    actor_user_id: int = Header(..., alias="HTTP_USER_ID"),
+    actor_user_id: int = Header(..., alias="http-user-id"),
     db: Session = Depends(get_db)
 ):
     """
@@ -65,6 +65,8 @@ async def another_victim(
     Returns:
         VictimResponse con información del set transferido, actionId y la siguiente acción
     """
+
+    print(f"owner: {request.originalOwnerId} postiion: {request.setPosition}")
     
     logger.info(f"POST /game/{room_id}/event/another-victim received")
     logger.info(f"Request: originalOwnerId={request.originalOwnerId}, setPosition={request.setPosition}")
