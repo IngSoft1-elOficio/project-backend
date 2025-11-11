@@ -7,8 +7,10 @@ from app.db.models import (
     Game, Room, CardsXGame, CardState, Player, ActionsPerTurn, 
     ActionType, ActionResult, Turn, TurnStatus, Card, ActionName
 )
+from app.schemas.detective_set_schema import SetType, NextAction
 from app.sockets.socket_service import get_websocket_service
 from app.services.game_status_service import build_complete_game_state
+from app.services.detective_set_service import DetectiveSetService
 from datetime import datetime
 import logging
 
@@ -40,17 +42,20 @@ class TransferredSet(BaseModel):
 class VictimResponse(BaseModel):
     success: bool
     transferredSet: TransferredSet
+    actionId: int  
+    nextAction: NextAction 
 
 @router.post("/{room_id}/event/another-victim", response_model=VictimResponse, status_code=200)
 async def another_victim(
     room_id: int,
     request: VictimRequest,
-    actor_user_id: int = Header(..., alias="HTTP_USER_ID"),
+    actor_user_id: int = Header(..., alias="http-user-id"),
     db: Session = Depends(get_db)
 ):
     """
     Endpoint para robar un set de detective de otro jugador.
     Registra las acciones según el flujo definido en actions-turn-flow.md
+    Luego replica el efecto del set robado.
     
     Args:
         room_id: ID de la sala
@@ -58,8 +63,10 @@ async def another_victim(
         actor_user_id: ID del jugador que roba (header)
     
     Returns:
-        VictimResponse con información del set transferido
+        VictimResponse con información del set transferido, actionId y la siguiente acción
     """
+
+    print(f"owner: {request.originalOwnerId} postiion: {request.setPosition}")
     
     logger.info(f"POST /game/{room_id}/event/another-victim received")
     logger.info(f"Request: originalOwnerId={request.originalOwnerId}, setPosition={request.setPosition}")
@@ -121,7 +128,7 @@ async def another_victim(
                 detail="Target player not found"
             )
 
-        # Chequeo que no pueda robarse a su mismo
+        # Chequeo que no pueda robarse a si mismo
         if actor.id == victim.id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -171,6 +178,16 @@ async def another_victim(
             another_victim_card.hidden = False
             another_victim_card.player_id = None
             
+        # CALCULAR NUEVA POSICIÓN PARA EL SET ROBADO
+        max_actor_set_position = db.query(CardsXGame.position).filter(
+            CardsXGame.player_id == actor.id,
+            CardsXGame.id_game == game.id,
+            CardsXGame.is_in == CardState.DETECTIVE_SET
+        ).order_by(CardsXGame.position.desc()).first()
+        
+        new_set_position = (max_actor_set_position[0] + 1) if max_actor_set_position else 1
+        
+        logger.info(f"Set va a ser movido de posicion {request.setPosition} a {new_set_position}")
         
         # evento another victim
         action_event = ActionsPerTurn(
@@ -198,16 +215,16 @@ async def another_victim(
             action_time=datetime.now(),
             player_source=victim.id,
             player_target=actor.id,
-            selected_set_id=request.setPosition,
+            selected_set_id=new_set_position,
             parent_action_id=action_event.id
         )
         db.add(action_steal)
         db.flush()
         
-        
-        # transfiero el set al actor
-        for idx, card in enumerate(victim_set_cards):
+        # Mover cartas al nuevo owner y posición
+        for card in victim_set_cards:
             card.player_id = actor.id
+            card.position = new_set_position
             
             action_move = ActionsPerTurn(
                 id_game=game.id,
@@ -221,7 +238,7 @@ async def another_victim(
             )
             db.add(action_move)
         
-        db.commit()
+        db.flush()
         
         transferred_cards = [
             CardSummary(
@@ -231,35 +248,74 @@ async def another_victim(
             )
             for card in victim_set_cards
         ]
+
+        # Determinar el tipo de set robado y si tiene wildcard
+        set_type, has_wildcard = _determine_stolen_set_type(victim_set_cards)
         
+        logger.info(f"Tipo de set robado: {set_type.value}, tiene wildcard: {has_wildcard}")
+        
+        # Crear acción de detective set y determinar siguiente acción
+        detective_service = DetectiveSetService(db)
+        
+        # Crear la acción DETECTIVE_SET con estado PENDING
+        detective_action = detective_service._create_detective_action(
+            game_id=game.id,
+            turn_id=current_turn.id,
+            player_id=actor.id,
+            set_type=set_type
+        )
+        
+        # El DETECTIVE_SET es hijo del STEAL_SET
+        detective_action.parent_action_id = action_steal.id
+        db.flush()
+        
+        logger.info(f"Crear detective actiion con id: {detective_action.id}")
+    
+        # Determinar la siguiente acción requerida según el tipo de set
+        next_action = detective_service._determine_next_action(
+            set_type=set_type,
+            has_wildcard=has_wildcard,
+            game_id=game.id,
+            owner_id=actor.id
+        )
+        
+        logger.info(f"Next action type: {next_action.type.value}")
+        logger.info(f"Allowed players: {next_action.allowedPlayers}")
+        
+        db.commit()
+        
+        # Construir response
         response = VictimResponse(
             success=True,
             transferredSet=TransferredSet(
-                position=request.setPosition,
+                position=new_set_position,
                 cards=transferred_cards,
                 newOwnerId=actor.id,
                 originalOwnerId=victim.id
-            )
+            ),
+            actionId=detective_action.id,  # Include the detective action ID
+            nextAction=next_action  # Direct NextAction object
         )
     
         ws_service = get_websocket_service()
         
-
+        # Notificar que el set fue robado
         await ws_service.notificar_event_step_update(
             room_id=room_id,
             player_id=actor.id,
             event_type="another_victim",
             step="set_stolen",
-            message=f"El jugador {actor.name} robo un set de {victim.name}",
+            message=f"El jugador {actor.name} robó un set de {victim.name}",
             data={
                 "fromPlayerId": victim.id,
                 "fromPlayerName": victim.name,
                 "toPlayerId": actor.id,
                 "toPlayerName": actor.name,
-                "setPosition": request.setPosition,
+                "originalSetPosition": request.setPosition,
+                "newSetPosition": new_set_position,
                 "cardCount": len(victim_set_cards),
                 "transferredSet": {
-                    "position": request.setPosition,
+                    "position": new_set_position,
                     "cards": [
                         {
                             "cardId": c.cardId,
@@ -272,16 +328,17 @@ async def another_victim(
                 }
             }
         )
-        logger.info(f"se emitio el evento")
+        logger.info("Se emitió el evento event_step_update del robo del set")
         
-        # notificar fin de accion
-        await ws_service.notificar_event_action_complete(
+        # Notificar que la acción de detective comenzó
+        await ws_service.notificar_detective_action_started(
             room_id=room_id,
             player_id=actor.id,
-            event_type="another_victim"
+            set_type=set_type.value
         )
-        logger.info(f"se emitio fin de accion")
+        logger.info("Se emitió detective_action_started")
         
+        # Obtener y notificar estado completo del juego
         game_state = build_complete_game_state(db, game.id)
         
         await ws_service.notificar_estado_publico(
@@ -294,6 +351,8 @@ async def another_victim(
             estados_privados=game_state.get("estados_privados", {})
         )
 
+        logger.info(f"Another Victim completado. ActionId: {detective_action.id}, NextAction: {next_action.type.value}")
+                         
         return response
         
     except HTTPException:
@@ -305,3 +364,52 @@ async def another_victim(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error transferring detective set: {str(e)}"
         )
+
+
+def _determine_stolen_set_type(cards: list[CardsXGame]) -> tuple[SetType, bool]:
+    """
+    Determina el tipo de set y si contiene wildcard basándose en las cartas.
+    
+    Args:
+        cards: Lista de CardsXGame del set robado
+        
+    Returns:
+        Tuple de (SetType, has_wildcard)
+    """
+    HARLEY_QUIN_ID = 4
+    TOMMY_BERESFORD_ID = 8
+    TUPPENCE_BERESFORD_ID = 10
+    
+    card_ids = [card.id_card for card in cards]
+    has_wildcard = HARLEY_QUIN_ID in card_ids
+    
+    # Contar cartas por tipo (excluyendo wildcard)
+    non_wildcard = [cid for cid in card_ids if cid != HARLEY_QUIN_ID]
+    
+    # Mapeo inverso de ID a SetType
+    id_to_set_type = {
+        11: SetType.POIROT,
+        6: SetType.MARPLE,
+        12: SetType.SATTERTHWAITE,
+        7: SetType.PYNE,
+        9: SetType.EILEENBRENT,
+    }
+    
+    # Verificar Beresford primero (caso especial)
+    tommy_count = card_ids.count(TOMMY_BERESFORD_ID)
+    tuppence_count = card_ids.count(TUPPENCE_BERESFORD_ID)
+    
+    if tommy_count > 0 or tuppence_count > 0:
+        return SetType.BERESFORD, has_wildcard
+    
+    # Para otros sets, buscar el tipo más común
+    if non_wildcard:
+        most_common_id = max(set(non_wildcard), key=non_wildcard.count)
+        if most_common_id in id_to_set_type:
+            return id_to_set_type[most_common_id], has_wildcard
+    
+    # Fallback (no debería llegar aquí si la validación previa fue correcta)
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Could not determine set type from stolen cards"
+    )

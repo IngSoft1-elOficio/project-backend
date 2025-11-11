@@ -49,6 +49,11 @@ class TurnStatus(str, enum.Enum):
     FINISHED = "FINISHED"
 
 
+class Direction(str, enum.Enum):
+    LEFT = "LEFT"
+    RIGHT = "RIGHT"
+
+
 class ActionType(str, enum.Enum):
     EVENT_CARD = "EVENT_CARD"
     DETECTIVE_SET = "DETECTIVE_SET"
@@ -56,6 +61,7 @@ class ActionType(str, enum.Enum):
     DISCARD = "DISCARD"
     DRAW = "DRAW"
     INSTANT = "INSTANT"
+    INIT = "INIT"
     REVEAL_SECRET = "REVEAL_SECRET"
     HIDE_SECRET = "HIDE_SECRET"
     VOTE = "VOTE"
@@ -110,7 +116,8 @@ class ActionName(str, enum.Enum):
     POINT_YOUR_SUSPICIONS_EFFECT = "Point Your Suspicions Effect"
     
     # Instant cards
-    NOT_SO_FAST = "Not so Fast"
+    INSTANT_START = "Instant Start"
+    INSTANT_PLAY = "Instant Play"
     
     # Devious cards
     BLACKMAILED = "Blackmailed"
@@ -124,6 +131,7 @@ class ActionResult(str, enum.Enum):
     SUCCESS = "SUCCESS"
     CANCELLED = "CANCELLED"
     FAILED = "FAILED"
+    CONTINUE = "CONTINUE"
 
 
 class Direction(str, enum.Enum):
@@ -239,6 +247,7 @@ class ActionsPerTurn(Base):
     turn_id = Column(Integer, ForeignKey("turn.id"))
     player_id = Column(Integer, ForeignKey("player.id"), nullable=False)
     action_time = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    action_time_end = Column(DateTime)
     action_name = Column(String(40))
     action_type = Column(Enum(ActionType))
     result = Column(Enum(ActionResult), default=ActionResult.PENDING)
@@ -276,3 +285,23 @@ class ActionsPerTurn(Base):
     card_received = relationship("CardsXGame", foreign_keys=[card_received_id])
     parent_action = relationship("ActionsPerTurn", remote_side=[id], foreign_keys=[parent_action_id])
     triggered_by = relationship("ActionsPerTurn", remote_side=[id], foreign_keys=[triggered_by_action_id])
+
+
+class SocialDisgracePlayer(Base):
+    """
+    Tabla que registra qué jugadores están en desgracia social.
+    Un jugador entra en desgracia social cuando todos sus secretos están revelados (hidden=False).
+    """
+    __tablename__ = "social_disgrace_player"
+    __table_args__ = (
+        UniqueConstraint("id_game", "player_id", name="uq_social_disgrace_game_player"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    id_game = Column(Integer, ForeignKey("game.id"), nullable=False)
+    player_id = Column(Integer, ForeignKey("player.id"), nullable=False)
+    entered_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    
+    # Relaciones
+    game = relationship("Game")
+    player = relationship("Player")

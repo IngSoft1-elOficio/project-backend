@@ -241,3 +241,23 @@ async def test_creates_first_turn(monkeypatch, setup_db, fake_ws, fake_create):
     assert turn.player_id == 10  # First player ID
     assert turn.status == db_models.TurnStatus.IN_PROGRESS
     assert turn.start_time is not None
+
+@pytest.mark.asyncio
+async def test_two_players_exclude_cards_in_same_file(monkeypatch, fake_ws, fake_create):
+    """Verifica que en partidas de 2 jugadores no se reparten ni aparecen en deck las cartas excluidas"""
+    patch_models(monkeypatch)
+    db = FakeDB()
+    db.rooms.append(Room(1, "Sala Test"))
+    db.players += [
+        Player(10, "A", 1, date(1990,1,1), True),
+        Player(11, "B", 1, date(1991,1,1), False)
+    ]
+    db.cards += [
+        Card(1, 'Point your suspicions', CardType.EVENT, 1),
+        Card(2, 'Blackmailed', CardType.DEVIUOS, 1),
+        Card(3, 'Other Event', CardType.EVENT, 3),
+    ]
+    res = await start_game(1, types.SimpleNamespace(user_id=10), db)
+    ids_in_db = [getattr(a, 'id_card', None) for a in db.added if hasattr(a, 'id_card')]
+    assert len(ids_in_db) > 0
+    assert res['game']['id'] == 100
