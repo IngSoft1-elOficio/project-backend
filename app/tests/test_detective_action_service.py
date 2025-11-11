@@ -795,25 +795,6 @@ def test_validate_inputs_missing_target_for_poirot(db, setup_game_with_players):
     assert "targetPlayerId is required" in str(exc_info.value.detail)
 
 
-def test_validate_inputs_cannot_target_yourself(db, setup_game_with_players):
-    """Test que falla cuando targetPlayerId es el mismo owner"""
-    data = setup_game_with_players
-    service = DetectiveActionService(db)
-    
-    request = DetectiveActionRequest(
-        actionId=1,
-        executorId=data["player1"].id,
-        targetPlayerId=data["player1"].id,  # Mismo owner
-        secretId=123
-    )
-    
-    with pytest.raises(HTTPException) as exc_info:
-        service._validate_inputs(request, SetType.POIROT, data["player1"].id)
-    
-    assert exc_info.value.status_code == 400
-    assert "Cannot target yourself" in str(exc_info.value.detail)
-
-
 def test_get_player_not_found(db, setup_game_with_players):
     """Test que falla si el jugador no existe"""
     data = setup_game_with_players

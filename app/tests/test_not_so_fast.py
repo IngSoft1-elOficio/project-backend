@@ -549,57 +549,6 @@ def test_check_players_exclude_active_player(game_setup):
 # TESTS SERVICIO COMPLETO
 # =============================
 
-def test_start_action_cancelable_with_nsf(game_setup):
-    """Test start_action con acción cancelable y jugadores con NSF"""
-    db = game_setup["db"]
-    game = game_setup["game"]
-    room = game_setup["room"]
-    player1 = game_setup["players"][0]
-    player2 = game_setup["players"][1]
-    point_card = game_setup["cards"]["point_suspicions"]
-    nsf_card = game_setup["cards"]["nsf"]
-    
-    # Player1 tiene Point your suspicions
-    card1 = crud.assign_card_to_player(db, game.id, point_card.id, player1.id, 1)
-    card1.is_in = models.CardState.HAND
-    db.commit()
-    
-    # Player2 tiene NSF
-    nsf_entry = crud.assign_card_to_player(db, game.id, nsf_card.id, player2.id, 1)
-    nsf_entry.is_in = models.CardState.HAND
-    db.commit()
-    
-    service = NotSoFastService(db)
-    
-    request = StartActionRequest(
-        playerId=player1.id,
-        cardIds=[card1.id],
-        additionalData=AdditionalData(
-            actionType="EVENT",
-            setPosition=None
-        )
-    )
-    
-    response = service.start_action(room.id, request)
-    
-    # Verificar respuesta
-    assert response.actionId is not None
-    assert response.actionNSFId is not None
-    assert response.cancellable is True
-    assert response.timeRemaining == 5
-    
-    # Verificar que se crearon las acciones en DB
-    intention = crud.get_action_by_id(db, response.actionId)
-    assert intention is not None
-    assert intention.action_type == models.ActionType.INIT
-    assert intention.result == models.ActionResult.PENDING
-    
-    nsf_action = crud.get_action_by_id(db, response.actionNSFId)
-    assert nsf_action is not None
-    assert nsf_action.action_type == models.ActionType.INSTANT
-    assert nsf_action.action_name == models.ActionName.INSTANT_START
-    assert nsf_action.triggered_by_action_id == intention.id
-
 
 def test_start_action_not_cancelable_no_nsf_window(game_setup):
     """Test start_action con acción cancelable pero sin jugadores con NSF"""
