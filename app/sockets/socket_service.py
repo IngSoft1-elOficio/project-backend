@@ -744,7 +744,7 @@ class WebSocketService:
         nsf_action_id: int,
         player_id: int,
         card_id: int,
-        player_name: str
+        player_name: str,
     ):
         """
         Notifica que un jugador jugó una carta NSF.

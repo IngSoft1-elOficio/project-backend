@@ -31,7 +31,7 @@ class NotSoFastService:
     EILEEN_BRENT_CARD_ID = 9
     
     # Tiempo de ventana NSF en segundos
-    NSF_WINDOW_DURATION = 5
+    NSF_WINDOW_DURATION = 10
     
     def __init__(self, db: Session):
         self.db = db
