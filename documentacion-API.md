@@ -1,12 +1,15 @@
 # API: Cards on the Table - Agatha Christie
 
-> Documentación de la API válido para SPRINT 1 y 2. 
+> Documento vivo para Sprint 3. Mantener sincronizado con los cambios de backend y front.
+> Documentación de la API válido para SPRINT 1, 2 y 3. 
+> Para información más confiable, visitar: ttp://localhost:8000/docs con el backend corriendo. 
 
 ## 1. Introducción
 
 - **Propósito**: describir la API REST y los eventos de WebSocket del juego
 - **Alcance Sprint 1**: Inicio de sesión y lobby. Crear o unirse a una partida. Jugar con manos y secretos asignados. Acciones permitidas: descartar cartas y reponer del mazo. El juego termina al llegar a la última carta del mazo ("murder escapes").
 - **Alcance Sprint 2**: Se incorpora la jugabilidad de las cartas de eventos y bajar set de detectives. 
+- **Alcance Sprint 2**: Se incorpora la jugabilidad general de las cartas eventos restantes, agregar carta a set propio o ajeno, desgracia social, ganar por revelar al asesino. 
 - **Base URL**: http://localhost:8000
 - **WebSocket base**: ws://localhost:8000
 
@@ -889,7 +892,7 @@ curl -s -X POST "http://localhost:8000/api/game/42/detective-action" \
 }' | jq .
 ```
 
-### 4.11 POST /api/game/{room_id}/event/cards-off-table
+### 4.11 POST /api/game/{room_id}/cards_off_the_table
 
 **Descripción**: Fuerza a un jugador objetivo a descartar todas sus cartas "Not so fast..." (NSF). Esta acción no puede ser cancelada por NSF.
 
@@ -1090,6 +1093,14 @@ Las cartas disponibles del mazo de descarte se pueden obtener del estado actual 
 
 **Paso 2 - Seleccionar carta**
 POST /api/game/{room_id}/event/look-into-ashes/select
+
+**Path params**: 
+- room_id: integer
+
+**Headers**:
+- HTTP_USER_ID: integer (ID del jugador que realiza la acción)
+
+**Body**
 ```json
 {
     "cardId": 14
@@ -1123,7 +1134,7 @@ POST /api/game/{room_id}/event/look-into-ashes/select
 - 409 conflict: estado del juego cambió
 - 500 server_error: error inesperado
 
-### 4.14 POST /api/game/{room_id}/event/and-then-one-more
+### 4.14 POST /api/game/{room_id}/event/one-more
 
 **Descripción**: Permite agregar un secreto revelado al set de secretos de cualquier jugador, ocultándolo.
 
@@ -1255,7 +1266,7 @@ Las cartas disponibles se pueden obtener del estado actual de la partida, que se
 - 409 conflict: estado del juego cambió
 - 500 server_error: error inesperado
 
-### 4.16 POST /api/game/{room_id}/event/early-train
+### 4.16 POST /api/game/{room_id}/early_train_to_paddington
 
 **Descripción**: Toma 6 cartas del tope del mazo regular y las coloca boca arriba en el descarte. La carta evento se elimina del juego.
 
@@ -1349,6 +1360,89 @@ curl -s -X DELETE "http://localhost:8000/api/game_join/42/leave" \
     -H "HTTP_USER_ID: 9" | jq .
 ```
 
+### 4.18 Not So Fast
+
+**4.18.a POST /api/game/{room_id}/start-action**
+- **Descripción**: Iniciar una acción que puede ser contrarrestada con Not So Fast.
+- **Path params**: `room_id` (integer)
+- **Body**: `{ "playerId": integer, "cardIds": [integer], "additionalData": object }`
+- **Responses**:
+  - `200 OK`: Acción iniciada con información de cancelabilidad y tiempo restante.
+  - `404 Not Found`: Sala no encontrada.
+  - `403 Forbidden`: No es el turno del jugador.
+
+**4.18.b POST /api/game/{room_id}/instant/not-so-fast**
+- **Descripción**: Jugar una carta Not So Fast para cancelar una acción.
+- **Path params**: `room_id` (integer)
+- **Body**: `{ "actionId": integer, "playerId": integer, "cardId": integer }`
+- **Responses**:
+  - `200 OK`: Carta Not So Fast jugada exitosamente.
+  - `404 Not Found`: Acción o carta no encontrada.
+  - `400 Bad Request`: Carta no está en la mano del jugador.
+
+**4.18.c POST /api/game/{room_id}/instant/not-so-fast/cancel**
+- **Descripción**: Ejecutar una acción que fue cancelada por Not So Fast.
+- **Path params**: `room_id` (integer)
+- **Body**: `{ "actionId": integer, "playerId": integer, "cardIds": [integer], "additionalData": object }`
+- **Responses**:
+  - `200 OK`: Acción cancelada ejecutada exitosamente.
+  - `404 Not Found`: Acción no encontrada.
+  - `403 Forbidden`: No autorizado para ejecutar la acción.
+
+### 4.19 Take Deck
+
+**4.19 POST /game/{room_id}/take-deck**
+- **Descripción**: Robar cartas del mazo regular.
+- **Path params**: `room_id` (integer)
+- **Body**: `{ "cantidad": integer }`
+- **Responses**:
+  - `200 OK`: Cartas robadas exitosamente.
+  - `404 Not Found`: Sala o partida no encontrada.
+  - `403 Forbidden`: No es el turno del jugador.
+  - `400 Bad Request`: Mazo vacío.
+
+### 4.20 Add to Set
+
+**4.20 POST /api/game/{room_id}/add-to-set**
+- **Descripción**: Agregar un detective a un set existente.
+- **Path params**: `room_id` (integer)
+- **Body**: `{ "owner": integer, "setType": string, "cardId": integer }`
+- **Responses**:
+  - `200 OK`: Acción registrada y notificaciones enviadas.
+  - `404 Not Found`: Sala no encontrada.
+  - `409 Conflict`: La partida no ha comenzado.
+
+### 4.21 Dead Card Folly
+
+**4.21.a POST /api/game/{room_id}/event/dead-card-folly/play**
+- **Descripción**: Jugar la carta "Dead Card Folly" y elegir dirección de intercambio.
+- **Path params**: `room_id` (integer)
+- **Body**: `{ "player_id": integer, "card_id": integer, "direction": string }`
+- **Responses**:
+  - `200 OK`: Acción registrada y notificaciones enviadas.
+  - `404 Not Found`: Sala, partida o carta no encontrada.
+  - `403 Forbidden`: No es el turno del jugador.
+
+**4.21.b POST /api/game/{room_id}/event/dead-card-folly/select-card**
+- **Descripción**: Seleccionar una carta para el intercambio.
+- **Path params**: `room_id` (integer)
+- **Body**: `{ "action_id": integer, "card_id": integer, "player_id": integer }`
+- **Responses**:
+  - `200 OK`: Carta seleccionada exitosamente.
+  - `404 Not Found`: Acción o carta no encontrada.
+  - `400 Bad Request`: Acción no está pendiente o carta no está en la mano.
+
+### 4.22 Delay the Murderer's Escape
+
+**4.22 POST /api/game/{room_id}/event/delay-murderer-escape**
+- **Descripción**: Jugar la carta "Delay the Murderer's Escape" para mover cartas del descarte al mazo.
+- **Path params**: `room_id` (integer)
+- **Body**: `{ "card_id": integer, "cardsToMove": integer }`
+- **Responses**:
+  - `200 OK`: Cartas movidas exitosamente.
+  - `404 Not Found`: Sala, partida o carta no encontrada.
+  - `403 Forbidden`: No es el turno del jugador.
+
 
 
 ## 5. Eventos WebSocket
@@ -1364,7 +1458,11 @@ Esta sección define el contrato de eventos de WebSocket para el juego. El backe
 
 **connected**
 - Emisor: servidor a cliente recién conectado
-- Payload: `{ "message": "Conectado existosamente" }`
+- Payload: `{ "message": "Conectado existosamente", "user_id": number, "room_id": number, "sid": string }`
+
+**disconnected**
+- Emisor: servidor a cliente recien conectado
+- Payload: `{ "message": "Conectado existosamente", "user_id": number, "room_id": number, "sid": string }`
 
 **player_connected**
 - Emisor: servidor a todos en game_{room_id}
@@ -1374,75 +1472,112 @@ Esta sección define el contrato de eventos de WebSocket para el juego. El backe
 - Emisor: servidor a todos en game_{room_id}
 - Payload: `{ "user_id": number, "room_id": number, "timestamp": "ISO-8601" }`
 
-**join_error**
-- Emisor: servidor al solicitante
+**error**
+- Emisor: servidor a cliente
 - Payload: `{ "message": string }`
 
-**player_joined**
+**game_state_public**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: lobby de partida en espera
-- Payload: `{ "player": PlayerView, "players_count": number }`
+- Payload: `{ "type": "game_state_public", "room_id": number, "game_id": number, "status": string, "turno_actual": number, "jugadores": array, "mazos": object, "sets": array, "secretsFromAllPlayers": array, "timestamp": "ISO-8601" }`
 
-**player_left**
+**game_state_private**
+- Emisor: servidor a cliente específico
+- Payload: `{ "type": "game_state_private", "user_id": number, "mano": array, "secretos": array, "timestamp": "ISO-8601" }`
+
+**game_ended**
+- Emisor: servidor a cliente específico
+- Payload: `{ "type": "game_ended", "user_id": number, "ganaste": boolean, "winners": array, "reason": string, "timestamp": "ISO-8601" }`
+
+**detective_action_started**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: lobby en espera
- - Payload: `{ "player_id": number, "players_count": number, "timestamp": "ISO-8601" }`
+- Payload: `{ "type": "detective_action_started", "player_id": number, "set_type": string, "message": string, "timestamp": "ISO-8601" }`
+
+**detective_target_selected**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "detective_target_selected", "player_id": number, "target_player_id": number, "set_type": string, "message": string, "timestamp": "ISO-8601" }`
+
+**detective_action_request**
+- Emisor: servidor al cliente objetivo
+- Payload: `{ "type": "detective_action_request", "action_id": string, "requester_id": number, "set_type": string, "target_player_id": number, "message": string, "timestamp": "ISO-8601" }`
+
+**detective_action_complete**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "detective_action_complete", "action_type": string, "player_id": number, "target_player_id": number, "secret_id": number, "action": string, "wildcard_used": boolean, "secret_data": object, "message": string, "timestamp": "ISO-8601" }`
 
 **game_cancelled**
 - Emisor: servidor a todos en game_{room_id}
 - Uso: notificar que la sala fue cancelada por el host antes de iniciar la partida
-- Payload: `{ "room_id": number, "timestamp": "ISO-8601" }`
+- Payload: `{ "type": "game_cancelled", "room_id": number, "timestamp": "ISO-8601" }`
 
-**game_started**
+**player_left**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: transición de WAITING → INGAME
-- Payload: `{ "game": GameView, "turn": TurnInfo }`
+- Uso: notificar que un jugador abandonó la sala en estado WAITING
+- Payload: `{ "type": "player_left", "player_id": number, "players_count": number, "players": array, "timestamp": "ISO-8601" }`
 
-**game_state**
-- Emisor: servidor al solicitante o broadcast cuando corresponde
-- Uso: snapshot completo del estado de la partida cuando se requiere resincronizar
-- Payload: GameStateView
-
-**hand_updated**
-- Emisor: servidor solo al dueño de la mano
-- Uso: actualizar mano del jugador tras acciones o inicio
-- Payload: `{ "player_id": number, "hand": HandView }`
-
-**secrets_updated**
-- Emisor: servidor solo al dueño
-- Uso: entregar/actualizar secretos
-- Payload: `{ "player_id": number, "secrets": SecretsView }`
-
-**deck_updated**
+**event_action_started**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: contador de mazo y descarte
-- Payload: `{ "remaining": number, "discard_count": number }`
+- Payload: `{ "type": "event_action_started", "player_id": number, "event_type": string, "card_name": string, "step": string, "message": string, "timestamp": "ISO-8601" }`
 
-**discard_updated**
+**event_step_update**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: carta superior del descarte y contador
-- Payload: `{ "top": CardSummary | null, "count": number }`
+- Payload: `{ "type": "event_step_update", "player_id": number, "event_type": string, "step": string, "message": string, "data": object, "timestamp": "ISO-8601" }`
 
-**turn_updated**
+**event_action_complete**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: avanzar turno, habilitar acciones
-- Payload: `{ "current_player_id": number, "order": number[] }`
+- Payload: `{ "type": "event_action_complete", "player_id": number, "event_type": string, "timestamp": "ISO-8601" }`
 
-**action_result**
-- Emisor: servidor al solicitante y, si aplica, al room con la parte visible
-- Uso: feedback inmediato de /discard y /skip
-- Payload (al solicitante): `{ "room_id": number, "action": ActionResult, "hand": HandView }`
-- Payload (broadcast a terceros): puede omitirse "hand" y devolver solo contadores visibles; normalmente se complementa con deck_updated y discard_updated
-
-**game_finished**
+**dead_card_folly_select_card**
 - Emisor: servidor a todos en game_{room_id}
-- Uso: fin de partida por agotamiento del mazo y carta final
-- Payload: `{ "winners": [{ "role": "murderer" | "accomplice" | "detective", "player_id": number }], "reason": "deck_exhausted_murderer_wins" | "one_player_left" | "other" }`
+- Payload: `{ "type": "dead_card_folly_select_card", "action_id": number, "direction": string, "player_id": number, "player_name": string, "message": string, "timestamp": "ISO-8601" }`
+
+**dead_card_folly_complete**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "dead_card_folly_complete", "action_id": number, "direction": string, "players_count": number, "message": string, "timestamp": "ISO-8601" }`
+
+**player_must_draw**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "player_must_draw", "player_id": number, "cards_to_draw": number, "message": string, "timestamp": "ISO-8601" }`
+
+**card_drawn_simple**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "card_drawn_simple", "player_id": number, "drawn_from": string, "cards_remaining": number, "message": string, "timestamp": "ISO-8601" }`
+
+**turn_finished**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "turn_finished", "player_id": number, "message": string, "timestamp": "ISO-8601" }`
+
+**social_disgrace_update**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "social_disgrace_update", "game_id": number, "players_in_disgrace": array, "message": string, "change": object, "timestamp": "ISO-8601" }`
+
+**valid_action**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "valid_action", "action_id": number, "player_id": number, "action_type": string, "action_name": string, "cancellable": boolean, "timestamp": "ISO-8601" }`
+
+**nsf_counter_start**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "nsf_counter_start", "action_id": number, "nsf_action_id": number, "player_id": number, "action_type": string, "action_name": string, "time_remaining": number, "timestamp": "ISO-8601" }`
+
+**nsf_counter_tick**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "nsf_counter_tick", "action_id": number, "remaining_time": number, "elapsed_time": number, "timestamp": "ISO-8601" }`
+
+**nsf_played**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "nsf_played", "action_id": number, "nsf_action_id": number, "player_id": number, "card_id": number, "player_name": string, "message": string, "timestamp": "ISO-8601" }`
+
+**nsf_counter_complete**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "nsf_counter_complete", "action_id": number, "final_result": string, "message": string, "timestamp": "ISO-8601" }`
+
+**cancelled_action_executed**
+- Emisor: servidor a todos en game_{room_id}
+- Payload: `{ "type": "cancelled_action_executed", "action_id": number, "player_id": number, "message": string, "timestamp": "ISO-8601" }`
 
 ### Secuencia típica por endpoints
 
 **POST /game/{room_id}/join**
-- Emitir: player_joined
+- Emitir: 
 
 **POST /game/{room_id}/start**
 - Emitir: game_started, hand_updated (por jugador), secrets_updated (por jugador), deck_updated, discard_updated
@@ -1509,72 +1644,89 @@ La estructura del proyecto sigue una organización modular para facilitar el man
 
 ```
 project-backend/
-├── app/
-│   ├── main.py           # Punto de entrada de la aplicación
-│   ├── config.py         # Configuración general
-│   ├── db/               # Capa de acceso a datos
-│   │   ├── crud.py       # Operaciones CRUD
-│   │   ├── database.py   # Configuración de la base de datos
-│   │   └── models.py     # Modelos SQLAlchemy
-│   ├── routes/           # Endpoints de la API
-│   │   ├── list.py       # Listado de partidas
-│   │   ├── discard.py    # Descartar cartas
-│   │   ├── game.py       # Operaciones básicas de juego
-│   │   ├── join.py       # Unirse a partida
-│   │   ├── skip_turn.py  # Saltar turno
-│   │   ├── event.py      # Endpoints de cartas evento
-│   │   ├── set.py        # Manejo de sets de detective
-│   │   ├── reveal.py     # Revelación de secretos
-│   │   ├── hide.py       # Ocultar secretos
-│   │   └── start.py      # Inicio de partida
-│   ├── schemas/          # Esquemas Pydantic
-│   │   ├── discard_schema.py
-│   │   ├── game.py
-│   │   ├── game_status_schema.py
-│   │   ├── player.py
-│   │   ├── room.py
-│   │   ├── set_schema.py          # Esquemas para sets de detective
-│   │   ├── event_schema.py        # Esquemas para cartas evento
-│   │   └── start.py
-│   ├── services/         # Lógica de negocio
-│   │   ├── game_service.py
-│   │   ├── game_status_service.py
-│   │   ├── set_service.py         # Lógica de sets de detective
-│   │   ├── event_service.py       # Lógica de cartas evento
-│   │   └── secret_service.py      # Manejo de secretos
-│   ├── sockets/          # Gestión de WebSocket
-│   │   ├── socket_events.py
-│   │   ├── socket_manager.py
-│   │   └── socket_service.py
-│   └── tests/            # Tests unitarios e integración
-│       ├── unit/
-│       │   ├── test_game_service.py
-│       │   ├── test_game_status_service.py
-│       │   ├── test_set_service.py
-│       │   ├── test_event_service.py
-│       │   └── test_db_crud.py
-│       └── integration/
-│           ├── test_discard.py
-│           ├── test_join.py
-│           ├── test_skip_turn.py
-│           ├── test_websocket.py
-│           ├── test_set_routes.py
-│           ├── test_event_routes.py
-│           └── test_routes_game.py
-├── documentacion-API.md  # Documentación de la API
-├── pytest.ini           # Configuración de pytest
-├── README.md            # Documentación general
-├── requirements.txt     # Dependencias del proyecto
-├── .env                # Variables de entorno (documentar en README)
-└── scripts/           # Scripts de utilidad
-    ├── start_dev.sh    # Inicio en desarrollo
-    ├── create_db.py    # Creación de base de datos
-    └── insert_data.sql # Datos iniciales
+├── app/                          # Aplicación principal
+│   ├── main.py                   # Punto de entrada de la aplicación FastAPI
+│   ├── config.py                 # Configuración general
+│   ├── db/                       # Capa de acceso a datos
+│   │   ├── crud.py              # Operaciones CRUD básicas
+│   │   ├── database.py          # Configuración de SQLAlchemy y base de datos
+│   │   ├── events.py            # Lógica específica de listeners de base de datos
+│   │   └── models.py            # Modelos SQLAlchemy (tablas)
+│   ├── routes/                   # Endpoints REST de la API
+│   │   ├── add_to_set.py        # Agregar carta a set de detective
+│   │   ├── another_victim.py    # Carta evento "Another Victim"
+│   │   ├── cards_off_the_table.py # Carta evento "Cards Off the Table"
+│   │   ├── dead_card_folly.py   # Carta evento "Dead Card Folly"
+│   │   ├── delay.py             # Carta evento "Delay the Murderer's Escape"
+│   │   ├── detective_action.py  # Acciones de sets de detective
+│   │   ├── discard.py           # Descartar cartas
+│   │   ├── draft.py             # Mazo de draft
+│   │   ├── early_train_to_paddington.py # Carta evento "Early Train to Paddington"
+│   │   ├── finish_turn.py       # Finalizar turno
+│   │   ├── game.py              # Operaciones básicas de partida
+│   │   ├── get_list.py          # Listado de partidas disponibles
+│   │   ├── join.py              # Unirse a partida
+│   │   ├── leave_game.py        # Abandono de partida
+│   │   ├── look_ashes.py        # Carta evento "Look Into Ashes"
+│   │   ├── not_so_fast.py       # Carta instantánea "Not So Fast"
+│   │   ├── one_more.py          # Carta evento "And Then There Was One More"
+│   │   └── play_detective_set.py # Bajar sets de detective
+│   ├── schemas/                  # Esquemas Pydantic para validación
+│   │   ├── dead_card_folly_schema.py # Esquemas para Dead Card Folly
+│   │   ├── delay_schema.py      # Esquemas para Delay the Murderer's Escape
+│   │   ├── detective_action_schema.py # Esquemas para acciones de detective
+│   │   ├── detective_set_schema.py # Esquemas para sets de detective
+│   │   ├── discard_schema.py    # Esquemas para descarte
+│   │   ├── draft.py             # Esquemas para mazo de draft
+│   │   ├── game.py              # Esquemas básicos de partida
+│   │   ├── game_status_schema.py # Esquemas para estado de juego
+│   │   ├── __init__.py          # Inicialización del módulo schemas
+│   │   ├── leave_game.py        # Esquemas para abandono de partida
+│   │   ├── look_ashes_schema.py # Esquemas para Look Into Ashes
+│   │   ├── not_so_fast_schema.py # Esquemas para Not So Fast
+│   │   ├── one_more_schema.py   # Esquemas para And Then There Was One More
+│   │   └── player.py            # Esquemas de jugador
+│   ├── services/                 # Lógica de negocio
+│   │   ├── counter_timeout_handler.py # Manejo de timeouts y contadores
+│   │   ├── dead_card_folly_service.py # Lógica de Dead Card Folly
+│   │   ├── detective_action_service.py # Lógica de acciones de detective
+│   │   ├── detective_set_service.py # Lógica de sets de detective
+│   │   ├── discard.py           # Lógica de descarte
+│   │   ├── draft_service.py     # Lógica del mazo de draft
+│   │   ├── early_train_discard.py # Lógica de Early Train to Paddington
+│   │   ├── game_service.py      # Lógica principal del juego
+│   │   ├── game_status_service.py # Estado y validaciones de partida
+│   │   ├── leave_game_service.py # Lógica de abandono de partida
+│   │   ├── not_so_fast_service.py # Lógica de Not So Fast
+│   │   ├── social_disgrace_service.py # Lógica de desgracia social
+│   │   ├── take_deck.py         # Lógica para robar cartas del mazo
+│   │   └── timer_manager.py     # Gestión de timers del juego
+│   ├── sockets/                  # Gestión de WebSocket
+│   │   ├── socket_events.py     # Definición de eventos WebSocket
+│   │   ├── socket_manager.py    # Gestor de conexiones WebSocket
+│   │   └── socket_service.py    # Lógica de notificaciones por WebSocket
+│   └── tests/                    # Tests unitarios e integración con pytest
+├── actions-turn-flow.md          # Documentación del flujo de acciones por turno
+├── create_db.py                  # Script para creación de base de datos
+├── documentacion-API.md          # Esta documentación de la API
+├── README.md                     # Documentación general del proyecto
+└── requirements.txt              # Dependencias del proyecto Python
 
 ```
+
+### Notas sobre la estructura:
+
+- **app/**: Contiene toda la aplicación FastAPI con separación clara de responsabilidades
+- **routes/**: Cada archivo maneja endpoints específicos organizados por funcionalidad de carta o acción
+- **schemas/**: Esquemas Pydantic para validación de requests/responses, organizados por funcionalidad
+- **services/**: Lógica de negocio separada de la presentación (routes) y persistencia (db)
+- **sockets/**: Manejo completo de WebSocket para notificaciones en tiempo real
+- **tests/**: Tests unitarios e integración con cobertura completa
+- **Archivos raíz**: Documentación, configuración y scripts de utilidad del proyecto
 
 ## 7. Changelog
 
 - **2025-09-22**: Documentación Inicial de la API, basada en los tickets generados.
 - **2025-10-9**: Actualización de la documentación acorde a las nuevas implementaciones del Sprint 2. 
 - **2025-10-18**: Se agregó el endpoint DELETE `/api/game_join/{room_id}/leave` (host cancela / jugador abandona) y la documentación de los eventos WebSocket `game_cancelled` y `player_left`.
+- **2025-11-10**: Actualización de la estructura de carpetas del proyecto reflejando la organización actual. Actualización de esquemas de base de datos (sección 3.2) con nuevos modelos como SocialDisgracePlayer. Adición de endpoints faltantes (4.18-4.25) incluyendo Not So Fast, One More, take deck, y cartas de eventos. Actualización integral de eventos WebSocket (sección 5) con payloads completos según implementación actual en socket_service.py.
