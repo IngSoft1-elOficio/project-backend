@@ -350,6 +350,80 @@ class WebSocketService:
         await self.ws_manager.emit_to_room(room_id, "detective_action_complete", mensaje)
         logger.info(f"✅ Broadcast detective action complete to room {room_id}")
     
+    async def notify_detective_oliver_added(
+        self,
+        room_id: int,
+        action_id: int,
+        oliver_player_id: int,
+        oliver_player_name: str,
+        target_player_id: int,
+        target_player_name: str,
+        set_position: int,
+        message: str
+    ):
+        """
+        Notifica que Ariadne Oliver fue agregada a un set de detective.
+        El jugador objetivo debe seleccionar un secreto para revelar.
+        
+        Args:
+            room_id: ID del room
+            action_id: ID de la acción ADD_DETECTIVE
+            oliver_player_id: ID del jugador que jugó Ariadne Oliver
+            oliver_player_name: Nombre del jugador que jugó la carta
+            target_player_id: ID del jugador dueño del set (debe revelar secreto)
+            target_player_name: Nombre del jugador objetivo
+            set_position: Posición del set al que se agregó
+            message: Mensaje descriptivo
+        """
+        mensaje = {
+            "type": "detective_oliver_added",
+            "action_id": action_id,
+            "oliver_player_id": oliver_player_id,
+            "oliver_player_name": oliver_player_name,
+            "target_player_id": target_player_id,
+            "target_player_name": target_player_name,
+            "set_position": set_position,
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "detective_oliver_added", mensaje)
+        logger.info(
+            f"🕵️ Emitted detective_oliver_added to room {room_id}: "
+            f"{oliver_player_name} → {target_player_name}, set {set_position}"
+        )
+    
+    async def notify_ariadne_oliver_complete(
+        self,
+        room_id: int,
+        player_id: int,
+        player_name: str,
+        message: str
+    ):
+        """
+        Notifica que el efecto de Ariadne Oliver se completó.
+        El jugador objetivo reveló su secreto.
+        
+        Args:
+            room_id: ID del room
+            player_id: ID del jugador que reveló el secreto
+            player_name: Nombre del jugador que reveló el secreto
+            message: Mensaje descriptivo
+        """
+        mensaje = {
+            "type": "ariadne_oliver_complete",
+            "player_id": player_id,
+            "player_name": player_name,
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await self.ws_manager.emit_to_room(room_id, "ariadne_oliver_complete", mensaje)
+        logger.info(
+            f"✅ Emitted ariadne_oliver_complete to room {room_id}: "
+            f"{player_name} revealed secret"
+        )
+    
     # ---------------
     # | EVENT CARDS | 
     # ---------------
