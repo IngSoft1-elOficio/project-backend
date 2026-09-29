@@ -31,7 +31,7 @@ def get_db():
 async def one_more_step_1(
     room_id: int,
     payload: OneMoreStartRequest,
-    user_id: int = Header(..., alias = "HTTP_USER_ID"),
+    user_id: int = Header(..., alias = "http-user-id"),
     db: Session = Depends(get_db)
 ):
 

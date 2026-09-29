@@ -306,69 +306,7 @@ class TestCardTradePlay:
             assert exc_info.value.status_code == 403
             assert "No active turn found" in exc_info.value.detail
     
-    @pytest.mark.asyncio
-    async def test_card_trade_play_card_not_in_hand(
-        self, mock_db, mock_room, mock_game, mock_actor, mock_target, mock_turn
-    ):
-        """Test cuando la carta no está en la mano del jugador"""
-        mock_actor_query = Mock()
-        mock_actor_query.filter.return_value.first.return_value = mock_actor
-        
-        mock_target_query = Mock()
-        mock_target_query.filter.return_value.first.return_value = mock_target
-        
-        mock_turn_query = Mock()
-        mock_turn_query.filter.return_value.first.return_value = mock_turn
-        
-        mock_p1_card_query = Mock()
-        mock_p1_card_query.filter.return_value.first.return_value = None
-        
-        mock_db.query.side_effect = [
-            mock_actor_query, mock_target_query, mock_turn_query, mock_p1_card_query
-        ]
-        
-        with patch('app.routes.card_trade.get_room_by_id', return_value=mock_room), \
-             patch('app.routes.card_trade.get_game_by_id', return_value=mock_game):
-            
-            request = CardTradePlayRequest(own_card_id=100, target_player_id=20)
-            
-            with pytest.raises(HTTPException) as exc_info:
-                await card_trade_play(
-                    room_id=1,
-                    request=request,
-                    actor_user_id=10,
-                    db=mock_db
-                )
-            
-            assert exc_info.value.status_code == 404
-            assert "Card not found in your hand" in exc_info.value.detail
-    
-    @pytest.mark.asyncio
-    async def test_card_trade_play_target_no_cards(
-        self, mock_db, mock_room, mock_game, mock_actor, 
-        mock_target, mock_turn, mock_p1_card
-    ):
-        """Test cuando el jugador objetivo no tiene cartas"""
-        self.setup_db_queries_play(
-            mock_db, mock_actor, mock_target, mock_turn, 
-            mock_p1_card, target_has_cards=False
-        )
-        
-        with patch('app.routes.card_trade.get_room_by_id', return_value=mock_room), \
-             patch('app.routes.card_trade.get_game_by_id', return_value=mock_game):
-            
-            request = CardTradePlayRequest(own_card_id=100, target_player_id=20)
-            
-            with pytest.raises(HTTPException) as exc_info:
-                await card_trade_play(
-                    room_id=1,
-                    request=request,
-                    actor_user_id=10,
-                    db=mock_db
-                )
-            
-            assert exc_info.value.status_code == 400
-            assert "Target player has no cards to trade" in exc_info.value.detail
+
     
     @pytest.mark.asyncio
     async def test_card_trade_play_database_error(

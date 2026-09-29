@@ -173,7 +173,8 @@ class TimerManager:
         finally:
             # Limpiar el timer del diccionario
             async with self._lock:
-                if timer.nsf_action_id in self._timers:
+                if (timer.nsf_action_id in self._timers and 
+                    self._timers[timer.nsf_action_id] == timer):  
                     del self._timers[timer.nsf_action_id]
     
     async def cancel_timer(self, nsf_action_id: int):

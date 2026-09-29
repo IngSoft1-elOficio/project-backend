@@ -100,7 +100,24 @@ async def card_trade_play(
     if not current_turn:
       raise HTTPException(status_code=403, detail="No active turn found")
     
-    # Validar que la carta está en la mano de P1
+    # IMPORTANTE: Buscar la carta "Card Trade" en la mano del jugador
+    # Esta es la carta del EVENTO que se está jugando
+    card_trade_event = db.query(CardsXGame).join(Card).filter(
+        CardsXGame.player_id == actor.id,
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.HAND,
+        Card.name == "Card Trade",
+        Card.type == "EVENT"
+    ).first()
+    
+    if not card_trade_event:
+        raise HTTPException(
+            status_code=404, 
+            detail="Card Trade event card not found in your hand"
+        )
+    
+    # Validar que la carta a intercambiar está en la mano de P1
+    # Y que NO sea la carta "Card Trade" misma
     p1_card = db.query(CardsXGame).filter(
         CardsXGame.id == request.own_card_id,
         CardsXGame.player_id == actor.id,
@@ -110,6 +127,12 @@ async def card_trade_play(
     if not p1_card:
       raise HTTPException(status_code=404, detail="Card not found in your hand")
     
+    # Validar que no intente intercambiar la carta "Card Trade" misma
+    if p1_card.id == card_trade_event.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot trade the Card Trade event card itself"
+        )
 
     # Validar que el target tiene al menos una carta
     target_has_cards = db.query(CardsXGame).filter(
@@ -124,6 +147,21 @@ async def card_trade_play(
             detail="Target player has no cards to trade"
         )
 
+    # DESCARTAR LA CARTA "CARD TRADE" 
+    # Obtener la posición máxima en el descarte
+    max_discard_pos = db.query(CardsXGame.position).filter(
+        CardsXGame.id_game == game.id,
+        CardsXGame.is_in == CardState.DISCARD
+    ).order_by(CardsXGame.position.desc()).first()
+    
+    next_discard_position = (max_discard_pos[0] + 1) if max_discard_pos else 1
+    
+    # Mover la carta "Card Trade" al descarte
+    card_trade_event.is_in = CardState.DISCARD
+    card_trade_event.position = next_discard_position
+    card_trade_event.hidden = False
+    card_trade_event.player_id = None  # Ya no pertenece a ningún jugador
+
     # Crear acción padre (PENDING hasta que P2 complete)
     action = ActionsPerTurn(
         id_game=game.id,
@@ -136,6 +174,7 @@ async def card_trade_play(
         player_source=actor.id,
         player_target=target_player.id,
         card_given_id=p1_card.id,  # Carta que P1 da
+        selected_card_id=card_trade_event.id,  # La carta evento que se jugó
         # card_received_id se llenará cuando P2 seleccione su carta
     )
     db.add(action)
@@ -166,10 +205,10 @@ async def card_trade_play(
       requester_name=actor.name,
       target_id=target_player.id
     )
-      
+
     logger.info(
         f"Card Trade initiated by player {actor.id} targeting {target_player.id}. "
-        f"Action ID: {action.id}"
+        f"Action ID: {action.id}. Card Trade event discarded to position {next_discard_position}"
       )
       
     return response

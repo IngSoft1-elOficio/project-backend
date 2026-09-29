@@ -244,7 +244,7 @@ async def play_not_so_fast(
             nsf_action_id=nsf_action_id,    # ZZZ
             player_id=request.playerId,
             card_id=request.cardId,
-            player_name=player_name
+            player_name=player_name,
         )
         
         # 6. Reiniciar el timer (cancelar el viejo y crear uno nuevo con 5s)
@@ -252,7 +252,7 @@ async def play_not_so_fast(
         
         async def on_tick(room_id: int, nsf_action_id: int, time_remaining: int):
             """Callback para cada tick del timer."""
-            total_time = 5
+            total_time = 10
             elapsed_time = total_time - time_remaining
             
             await ws_service.notificar_nsf_counter_tick(
@@ -283,7 +283,7 @@ async def play_not_so_fast(
         await timer_manager.start_timer(
             room_id=room_id,
             nsf_action_id=nsf_start_action_id,  # YYY (mismo ID, se reinicia)
-            time_remaining=5,
+            time_remaining=10,
             on_tick_callback=on_tick,
             on_complete_callback=on_complete
         )

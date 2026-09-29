@@ -35,6 +35,7 @@ async def descartar_cartas(db, game, user_id, ordered_player_cards):
     card_ids_to_process = [card.id_card for card in ordered_player_cards]
 
     early_train_found = False   # True si encuentra la Early train to paddington
+    early_train_counter = 0     # Cuenta cuantas ealy train se descartan
     
     for i, card in enumerate(ordered_player_cards):
         # Eliminar duplicados (si existen)
@@ -52,6 +53,8 @@ async def descartar_cartas(db, game, user_id, ordered_player_cards):
             card.position = -1
             card.player_id = None
             card.hidden = False
+
+            early_train_counter = early_train_counter + 1
 
             create_card_action(
               db=db,
@@ -101,7 +104,8 @@ async def descartar_cartas(db, game, user_id, ordered_player_cards):
     # Se ejecuta el efecto de la early train si fue descartada
     if early_train_found:
       print("🚂 Early Train to paddington descartada: ejecutando efecto que mueve 6 cartas del deck al discard.")
-      await early_train_discard_effect(db, game.id, user_id, room.id)
+      for i in range(1, early_train_counter + 1): 
+        await early_train_discard_effect(db, game.id, user_id, room.id)
     
     print(f"✅ Total descartado en orden: {card_ids_to_process}")
     
